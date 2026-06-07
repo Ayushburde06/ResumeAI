@@ -1,0 +1,31 @@
+{% macro contact_sep() %}<span class="contact-sep">|</span>{% endmacro %}
+
+{% macro contact_line(pi) %}
+  {%- if pi.email -%}
+    <a href="mailto:{{ pi.email }}">{{ pi.email }}</a>
+  {%- endif -%}
+  {%- if pi.phone -%}
+    {%- if pi.email -%}{{ contact_sep() }}{%- endif -%}
+    {{ pi.phone }}
+  {%- endif -%}
+  {%- if pi.location -%}
+    {%- if pi.email or pi.phone -%}{{ contact_sep() }}{%- endif -%}
+    {{ pi.location }}
+  {%- endif -%}
+  {%- if pi.linkedin -%}
+    {%- if pi.email or pi.phone or pi.location -%}{{ contact_sep() }}{%- endif -%}
+    <a href="{{ pi.linkedin | to_href }}">LinkedIn</a>
+  {%- endif -%}
+  {%- if pi.github -%}
+    {%- if pi.email or pi.phone or pi.location or pi.linkedin -%}{{ contact_sep() }}{%- endif -%}
+    <a href="{{ pi.github | to_href }}">GitHub</a>
+  {%- endif -%}
+  {%- if pi.website -%}
+    {%- if pi.email or pi.phone or pi.location or pi.linkedin or pi.github -%}{{ contact_sep() }}{%- endif -%}
+    <a href="{{ pi.website | to_href }}">Website</a>
+  {%- endif -%}
+{% endmacro %}
+
+{% macro project_link(link) %}
+  <a href="{{ link | to_href }}">{{ link | link_label }}</a>
+{% endmacro %}

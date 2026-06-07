@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<style>
+  @page { size: auto; margin: 0; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 8.8pt;
+    color: #1a1a1a;
+    line-height: 1.22;
+    padding: 8mm 10mm;
+  }
+
+  /* Header */
+  .name {
+    font-size: 16pt;
+    font-weight: bold;
+    color: #000;
+    letter-spacing: -0.3px;
+  }
+  .contact-line {
+    font-size: 8pt;
+    color: #444;
+    margin-top: 1px;
+    margin-bottom: 8px;
+  }
+  .contact-sep { color: #999; margin: 0 4px; }
+  a { color: #1a1a1a; text-decoration: underline; }
+
+  /* Sections */
+  .section { margin-bottom: 6px; }
+  .section-title {
+    font-size: 8pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #000;
+    border-bottom: 1px solid #000;
+    padding-bottom: 1px;
+    margin-bottom: 4px;
+  }
+
+  /* Entry rows (experience, education) */
+  .entry { margin-bottom: 4px; }
+  .entry-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .entry-left { font-weight: bold; color: #000; }
+  .entry-right { text-align: right; color: #444; font-size: 8.2pt; }
+  .entry-sub {
+    font-size: 8.2pt;
+    color: #333;
+    font-style: italic;
+    margin-top: 0;
+  }
+
+  /* Bullets */
+  .bullets { margin-top: 1px; padding-left: 11px; }
+  .bullets li {
+    font-size: 8.2pt;
+    color: #1a1a1a;
+    margin-bottom: 1px;
+    line-height: 1.25;
+  }
+
+  /* Summary */
+  .summary { font-size: 8.2pt; color: #1a1a1a; line-height: 1.3; text-align: justify; }
+  strong { font-weight: bold; color: #000; }
+
+  /* Skills — dense inline */
+  .skill-line { font-size: 8.2pt; color: #1a1a1a; margin-bottom: 2px; line-height: 1.25; text-align: justify; }
+  .skill-label { font-weight: bold; color: #000; }
+
+  /* Projects */
+  .project { margin-bottom: 3px; }
+  .project-header { font-size: 8.8pt; font-weight: bold; color: #000; }
+  .project-link { font-size: 7.8pt; color: #444; font-weight: normal; }
+  .project-desc { font-size: 8.2pt; color: #1a1a1a; margin-top: 1px; line-height: 1.25; }
+  .project-tech { font-size: 7.8pt; color: #444; margin-top: 1px; font-style: italic; line-height: 1.2; }
+
+  /* Certifications */
+  .cert { font-size: 8.2pt; color: #1a1a1a; margin-bottom: 1px; }
+  .cert-year { color: #444; }
+</style>
+</head>
+<body>
+{% import '_macros.html' as m %}
+
+  <div class="name">{{ resume.personal_info.name }}</div>
+  <div class="contact-line">{{ m.contact_line(resume.personal_info) }}</div>
+
+  {% if resume.summary %}
+  <div class="section">
+    <div class="section-title">Summary</div>
+    <p class="summary">{{ resume.summary | bold }}</p>
+  </div>
+  {% endif %}
+
+  {% if resume.experience %}
+  <div class="section">
+    <div class="section-title">Experience</div>
+    {% for exp in resume.experience %}
+    <div class="entry">
+      <div class="entry-row">
+        <div class="entry-left">{{ exp.company }}</div>
+        <div class="entry-right">{% if exp.location %}{{ exp.location }}{% endif %}</div>
+      </div>
+      <div class="entry-row">
+        <div>{{ exp.title }}</div>
+        <div class="entry-right">{{ exp.start_date }}{% if exp.start_date and exp.end_date %} – {% endif %}{{ exp.end_date }}</div>
+      </div>
+      {% if exp.bullets %}
+      <ul class="bullets">{% for b in exp.bullets %}<li>{{ b | bold }}</li>{% endfor %}</ul>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if resume.education %}
+  <div class="section">
+    <div class="section-title">Education</div>
+    {% for edu in resume.education %}
+    <div class="entry">
+      <div class="entry-row">
+        <div class="entry-left">{{ edu.institution }}</div>
+        <div class="entry-right">{% if edu.location %}{{ edu.location }}{% endif %}</div>
+      </div>
+      <div class="entry-row">
+        <div>{{ edu.degree }}{% if edu.gpa %} &nbsp;·&nbsp; GPA {{ edu.gpa }}{% endif %}{% if edu.honors %} &nbsp;·&nbsp; {{ edu.honors }}{% endif %}</div>
+        <div class="entry-right">{{ edu.graduation_year }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if resume.skills and (resume.skills.languages or resume.skills.frameworks or resume.skills.databases or resume.skills.tools or resume.skills.concepts) %}
+  <div class="section">
+    <div class="section-title">Skills</div>
+    {% if resume.skills.languages %}
+    <div class="skill-line"><span class="skill-label">Languages: </span>{{ resume.skills.languages | bold_list }}</div>
+    {% endif %}
+    {% if resume.skills.frameworks %}
+    <div class="skill-line"><span class="skill-label">Frameworks &amp; Libraries: </span>{{ resume.skills.frameworks | bold_list }}</div>
+    {% endif %}
+    {% if resume.skills.databases %}
+    <div class="skill-line"><span class="skill-label">Databases: </span>{{ resume.skills.databases | bold_list }}</div>
+    {% endif %}
+    {% if resume.skills.tools %}
+    <div class="skill-line"><span class="skill-label">Tools &amp; Technologies: </span>{{ resume.skills.tools | bold_list }}</div>
+    {% endif %}
+    {% if resume.skills.concepts %}
+    <div class="skill-line"><span class="skill-label">Concepts: </span>{{ resume.skills.concepts | bold_list }}</div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if resume.projects %}
+  <div class="section">
+    <div class="section-title">Projects</div>
+    {% for p in resume.projects %}
+    <div class="entry" style="margin-bottom: 5px;">
+      <div class="entry-row">
+        <div class="entry-left">
+          {{ p.name }}
+          {% if p.link %}<span class="project-link"> — {{ m.project_link(p.link) }}</span>{% endif %}
+          {% if p.live_link %}<span class="project-link"> | <a href="{{ p.live_link | to_href }}">Live Demo</a></span>{% endif %}
+        </div>
+      </div>
+      {% if p.tech_stack %}
+      <div class="project-tech">
+        {{ p.tech_stack | join(", ") }}
+      </div>
+      {% endif %}
+      {% if p.description %}
+      <ul class="bullets">
+        {% for line in p.description.split('\n') %}{% if line.strip() %}<li>{{ line | bold }}</li>{% endif %}{% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if resume.certifications %}
+  <div class="section">
+    <div class="section-title">Certifications</div>
+    {% for c in resume.certifications %}
+    <div class="cert">
+      <strong>{{ c.name }}</strong>{% if c.issuer %} · {{ c.issuer }}{% endif %}{% if c.year %}<span class="cert-year"> · {{ c.year }}</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+</body>
+</html>

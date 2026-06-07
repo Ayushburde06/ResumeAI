@@ -1,0 +1,221 @@
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+% only for pdflatex
+% \input{glyphtounicode}
+
+% fontawesome
+\usepackage{fontawesome5}
+
+% fixed width
+\usepackage[scale=0.90,lf]{FiraMono}
+
+% light-grey
+\definecolor{light-grey}{gray}{0.83}
+\definecolor{dark-grey}{gray}{0.3}
+\definecolor{text-grey}{gray}{.08}
+
+\DeclareRobustCommand{\ebseries}{\fontseries{eb}\selectfont}
+\DeclareTextFontCommand{\texteb}{\ebseries}
+
+% custom underilne
+\usepackage{contour}
+\usepackage[normalem]{ulem}
+\renewcommand{\ULdepth}{1.8pt}
+\contourlength{0.8pt}
+\newcommand{\myuline}[1]{%
+  \uline{\phantom{#1}}%
+  \llap{\contour{white}{#1}}%
+}
+
+
+% custom font: helvetica-style
+\usepackage{tgheros}
+\renewcommand*\familydefault{\sfdefault} 
+%% Only if the base font of the document is to be sans serif
+\usepackage[T1]{fontenc}
+
+
+\pagestyle{fancy}
+\fancyhf{} % clear all header and footer fields
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% Adjust margins
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{0in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1.0in}
+
+\urlstyle{same}
+
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+% Sections formatting - serif
+% \titleformat{\section}{
+%   \vspace{2pt} \scshape \raggedright\large % header section
+% }{}{0em}{}[\color{black} \titlerule \vspace{-5pt}]
+
+% TODO EBSERIES
+% sans serif sections
+\titleformat {\section}{
+    \bfseries \vspace{2pt} \raggedright \large % header section
+}{}{0em}{}[\color{light-grey} {\titlerule[2pt]} \vspace{-4pt}]
+
+% only for pdflatex
+% Ensure that generate pdf is machine readable/ATS parsable
+% \pdfgentounicode=1
+
+%-------------------------
+% Custom commands
+\newcommand{\resumeItem}[1]{
+  \item\small{
+    {#1 \vspace{-1pt}}
+  }
+}
+
+\newcommand{\resumeSubheading}[4]{
+  \vspace{-1pt}\item
+    \begin{tabular*}{\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & {\color{dark-grey}\small #2}\vspace{1pt}\\ % top row of resume entry
+      \textit{#3} & {\color{dark-grey} \small #4}\\ % second row of resume entry
+    \end{tabular*}\vspace{-4pt}
+}
+
+\newcommand{\resumeSubSubheading}[2]{
+    \item
+    \begin{tabular*}{\textwidth}{l@{\extracolsep{\fill}}r}
+      \textit{\small#1} & \textit{\small #2} \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeProjectHeading}[2]{
+    \item
+    \begin{tabular*}{\textwidth}{l@{\extracolsep{\fill}}r}
+      #1 & {\color{dark-grey}\small #2} \\
+    \end{tabular*}\vspace{-4pt}
+}
+
+\newcommand{\resumeSubItem}[1]{\resumeItem{#1}\vspace{-4pt}}
+
+\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
+
+% CHANGED default leftmargin  0.15 in
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{0pt}}
+
+\color{text-grey}
+
+%-------------------------------------------
+%%%%%%  RESUME STARTS HERE  %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\begin{document}
+
+%----------HEADING----------
+\begin{center}
+    \textbf{\Huge Ayushkumar Burde} \\ \vspace{5pt}
+    \small \faEnvelope \hspace{2pt} \texttt{ayushburde156@gmail.com} \hspace{1pt} $|$ 
+    \hspace{1pt} \faPhone* \texttt{+91-8600820291} \hspace{1pt} $|$
+    \hspace{1pt} \faMapMarker* \hspace{2pt}\texttt{Mumbai, India} \hspace{1pt} $|$
+    \hspace{1pt} \faLinkedin \hspace{2pt}\href{https://linkedin.com}{\myuline{LinkedIn}} \hspace{1pt} $|$
+    \hspace{1pt} \faGithub \hspace{2pt}\href{https://github.com}{\myuline{GitHub}} \hspace{1pt} $|$
+    \hspace{1pt} \faGlobe \hspace{2pt}\href{https://website.com}{\myuline{Website}}
+    \\ \vspace{-3pt}
+\end{center}
+
+%-----------SUMMARY-----------
+\section{SUMMARY}
+\vspace{2pt}
+\small{Software Engineer Intern with \textbf{Bachelor's} in \textbf{Computer Science} and hands-on experience in \textbf{software development}, building \textbf{AI-driven}, \textbf{cloud-based systems}. Experienced in \textbf{backend} services, \textbf{React, TypeScript}, and \textbf{Python}, with familiarity in \textbf{Agile development practices, version control}, and modern \textbf{technologies}. Eager to contribute to projects at \textbf{FairCloud} and grow within innovative \textbf{technical} teams.}
+
+
+%-----------EXPERIENCE-----------
+\section{EXPERIENCE}
+  \resumeSubHeadingListStart
+
+    \resumeSubheading
+      {CrystalTech Services Pvt Ltd}{Jul 2024 -- Dec 2024}
+      {Software Engineer Intern}{Indore, India}
+      \resumeItemListStart
+        \resumeItem{Developed \textbf{microservices} using \textbf{Node.js} and \textbf{Express.js}; deployed on \textbf{AWS}, enhancing \textbf{cloud infrastructure} performance by \textbf{40ms}}
+        \resumeItem{Collaborated on \textbf{React.js} and \textbf{TypeScript} frontend; integrated \textbf{RESTful APIs} and followed \textbf{Agile/SCRUM} practices with \textbf{version control} via \textbf{Git}}
+        \resumeItem{Utilized \textbf{MongoDB} and \textbf{Elasticsearch} as \textbf{NoSQL database} solutions; supported \textbf{CI/CD} pipelines and debugging in \textbf{dynamic systems}}
+      \resumeItemListEnd
+
+  \resumeSubHeadingListEnd
+
+%-----------EDUCATION-----------
+\section {EDUCATION}
+  \resumeSubHeadingListStart
+    \resumeSubheading
+      {Tulsiramji Gaikwad Patil College of Engineering and Technology}{2025}
+      {Master of Computer Applications}{Nagpur, India}
+      
+    \resumeSubheading
+      {City Premier College}{2022}
+      {Bachelor of Computer Applications}{Nagpur, India}
+  \resumeSubHeadingListEnd
+  
+%-----------PROGRAMMING SKILLS-----------
+\section{SKILLS}
+ \begin{itemize}[leftmargin=0in, label={}]
+    \small{\item{
+     \textbf{Languages \& Frameworks}{: Python, React, TypeScript, RESTful APIs, NoSQL database, Elasticsearch, microservices architecture, cloud infrastructure, AI-driven, JavaScript, SQL, OOP, backend development, Agile development, version control, software development}\vspace{2pt} \\
+     \textbf{Systems \& Tools}{: Git, GitHub, Apache, CI/CD, Django, Node.js, Express.js, AWS, Azure, Google Cloud, Microsoft}\vspace{2pt} \\
+     \textbf{Leadership}{: Problem-solving, Team collaboration, Agile/SCRUM, Collaborative, Understanding of requirements, Familiarity with development practices, Adaptability to new technologies}
+    }}
+ \end{itemize}
+
+%-----------PROJECTS-----------
+\section{PROJECTS}
+    \resumeSubHeadingListStart
+    
+      \resumeProjectHeading
+          {\textbf{ResumeAI} $|$ \emph{\small{React, FastAPI, Python, WeasyPrint, AI}}}{June 2026 -- Present}
+          \resumeItemListStart
+            \resumeItem{Built an \textbf{AI-powered ATS Resume Builder} with \textbf{\LaTeX{}-based PDF generation}, \textbf{dynamic template rendering}, and \textbf{job description keyword optimization}.}
+            \resumeItem{Engineered a robust PDF export engine using \textbf{WeasyPrint} and \textbf{Jinja2}, ensuring pixel-perfect layout preservation.}
+          \resumeItemListEnd
+    
+      \resumeProjectHeading
+          {\textbf{NotesApp} --- \href{https://github.com}{\myuline {GitHub}} $|$ \emph{\small{React.js, Node.js, Express.js, MongoDB, RESTful APIs, JWT, AWS, Git}}}{}
+          \resumeItemListStart
+            \resumeItem{Built \textbf{full-stack app} using \textbf{React, Node.js}, and \textbf{MongoDB}; deployed on \textbf{AWS}, serving \textbf{2K+ users} with secure \textbf{version control} and \textbf{development} workflows}
+          \resumeItemListEnd
+          
+      \resumeProjectHeading
+         {\textbf{CV Generator} --- \href{https://github.com}{\myuline {GitHub}} $|$ \emph{\small{Python, Django, SQLite, HTML5, CSS3, ReportLab, Google Cloud}}}{}
+          \resumeItemListStart
+            \resumeItem{Developed \textbf{Python/Django} app with \textbf{PDF export}; used \textbf{Google} tools and \textbf{cloud} storage for file handling, showcasing \textbf{backend} and \textbf{technical} control}
+          \resumeItemListEnd
+          
+    \resumeSubHeadingListEnd
+
+%-----------CERTIFICATIONS-----------
+\section{CERTIFICATIONS}
+ \begin{itemize}[leftmargin=0in, label={}]
+    \small{\item{
+     \textbf{Complete 2025 Python Bootcamp From Scratch} $\cdot$ Udemy \hfill 2024 \vspace{1pt} \\
+     \textbf{Django Masterclass} $\cdot$ Udemy \hfill 2024
+    }}
+ \end{itemize}
+
+%-------------------------------------------
+\end{document}
