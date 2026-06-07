@@ -73,4 +73,3 @@ npm run dev
 *(You'll need to create a `.env` in the backend folder with your `OPENAI_API_KEY`!)*
 
 ---
-*Built with ❤️ to beat the ATS bots.*
