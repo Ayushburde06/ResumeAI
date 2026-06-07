@@ -1,208 +1,76 @@
-# ResumeAI — AI-Powered Resume Tailoring & ATS Optimizer
+# 🚀 ResumeAI: Agentic RAG Resume Builder
 
-> Built as a full-stack portfolio project — turns a generic resume into a job-specific, ATS-optimized one in under 30 seconds.
+> **Why I built this:** I was tired of applying to jobs and getting instantly rejected by ATS (Applicant Tracking System) bots. I knew I needed to tailor my resume for every single application, but doing it manually took hours. So, I built a custom Agentic AI system to do the heavy lifting for me in under 30 seconds.
 
----
-
-## What is this?
-
-I built ResumeAI because I kept noticing that most ATS checkers just tell you your score — they don't actually *fix* the resume. So I built one that does both.
-
-You upload your resume, paste a job description, and the AI completely rewrites it: tailors the wording, injects relevant keywords, reorganizes bullet points, and writes a cover letter — all while keeping the content honest and human-sounding.
-
-It also shows you an ATS score (matched vs. missing keywords) so you can see exactly how well the resume aligns before you apply.
+This isn't just a basic ChatGPT wrapper. It's a full-stack SaaS application powered by an **Agentic Loop** and **RAG (Retrieval-Augmented Generation)** to ensure the resumes actually pass ATS filters.
 
 ---
 
-## Features
+## 🧠 The Architecture: Agentic RAG
 
-- **Resume Upload** — supports PDF and DOCX
-- **AI Resume Tailoring** — rewrites every section (summary, experience, projects, skills) using job description keywords
-- **ATS Score** — matched keywords, missing keywords, percentage match
-- **Cover Letter Generator** — job-specific, natural-sounding, 4-paragraph format
-- **3 Resume Templates** — Modern, Classic, Minimal
-- **PDF Export** — clean, single-page A4 via Puppeteer (looks exactly like the browser preview)
-- **Login / Signup** — JWT-based authentication, passwords hashed with bcrypt
-- **Resume History Dashboard** — every tailored resume is saved to your account
-- **3 Free Uses** — free tier with 3 analyses, premium for unlimited
-- **Model Selection UI** — choose between AI models with quality badges
+Instead of blindly sending a prompt to an LLM, this app uses a structured, self-correcting workflow:
+
+1. **RAG (Knowledge Retrieval):** When you upload a resume, the backend uses a custom TF-IDF retrieval engine to search local knowledge bases (`.jsonl` files containing ATS rules and job market signals) to ground the AI in actual HR best practices.
+2. **The Agentic Loop (Self-Correction):**
+   * The *Writer Agent* drafts the first tailored resume.
+   * The system calculates a hard ATS keyword score against the Job Description.
+   * If the score is below 90%, the **Critique Agent** wakes up, analyzes what keywords are missing, and forces the Writer Agent to do a second pass to fix its mistakes.
+3. **Parallel Tasking:** Once the resume is perfected, the orchestrator spawns sub-agents in parallel to write a Cover Letter and generate Interview Prep questions simultaneously.
 
 ---
 
-## Tech Stack
+## 💻 Tech Stack
 
-| Layer | Tech |
-|-------|------|
-| Frontend | React 18 + TypeScript + Vite + Tailwind CSS |
-| Backend | Python + FastAPI + Uvicorn |
-| Database | SQLite + SQLAlchemy ORM |
-| Authentication | JWT (python-jose) + bcrypt |
-| AI | GLM (via OpenAI-compatible API) |
-| PDF Generation | Node.js + Puppeteer + Jinja2 HTML templates |
-| Resume Parsing | pdfplumber + python-docx |
+I built this end-to-end to handle everything from UI to complex AI state management:
 
----
-
-## Project Structure
-
-```
-resume-saas/
-├── backend/
-│   ├── main.py                    # FastAPI app entry point
-│   ├── models.py                  # SQLAlchemy models (User, ResumeHistory, UserStats)
-│   ├── routers/
-│   │   ├── analyze.py             # POST /api/analyze — core tailoring pipeline
-│   │   └── auth.py                # Register, Login, /me endpoints
-│   ├── services/
-│   │   ├── parser.py              # PDF/DOCX text extraction
-│   │   ├── ai_service.py          # AI prompts, GLM calls, ATS improvement
-│   │   ├── ats_engine.py          # Keyword scoring logic
-│   │   ├── auth_service.py        # JWT creation + bcrypt hashing
-│   │   └── pdf_generator.py       # Jinja2 → HTML → Puppeteer → PDF
-│   ├── templates/                 # modern.html, classic.html, minimal.html
-│   ├── render_pdf.cjs             # Node.js Puppeteer script (called via subprocess)
-│   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   │   ├── pages/                 # Landing, Login, Signup, Dashboard, HistoryResults
-│   │   ├── components/            # ResumePreview, ResumeEditor, ModelSelector, etc.
-│   │   ├── context/               # AuthContext (JWT + user stats)
-│   │   ├── lib/api.ts             # Axios API client
-│   │   └── types/                 # TypeScript interfaces
-│   └── package.json
-└── README.md
-```
+*   **Frontend:** React 18, Vite, TypeScript, Tailwind CSS
+*   **Backend:** Python, FastAPI, Uvicorn
+*   **Database:** SQLite + SQLAlchemy ORM
+*   **AI/Logic:** Custom Python State Machine (Agent Loop), Custom TF-IDF (RAG), OpenAI-compatible GLM API
+*   **Authentication:** JWT + bcrypt hashing
+*   **Document Processing:** pdfplumber (reading) + Puppeteer/Jinja2 (exporting pixel-perfect PDFs)
 
 ---
 
-## Running Locally
+## ✨ Features
 
-### Backend
+*   **Smart Resume Tailoring:** Completely rewrites summaries, experience, and skills based on the exact job description.
+*   **Live ATS Scoring:** Shows you exactly which keywords you matched and which ones you missed.
+*   **History Dashboard:** Saves every version of your tailored resumes securely in your account.
+*   **PDF Export:** Uses a headless browser (Puppeteer) to export the HTML exactly as it looks on screen into an A4 PDF.
+*   **Parallel Cover Letters:** Gets you a matching cover letter instantly.
 
+---
+
+## 🛠️ What I Learned Building This
+
+*   **Building Agents from Scratch:** I learned how to build a state machine in Python instead of relying on heavy frameworks, teaching me the core logic of how AI agents "think" and loop.
+*   **Vector Math for RAG:** Implementing TF-IDF and Cosine Similarity from scratch really helped me understand how vector databases actually work under the hood.
+*   **Performance Optimization:** By using `ThreadPoolExecutor` to run the cover letter and interview prep agents in parallel, I cut the response time from 75 seconds down to under 30 seconds.
+
+---
+
+## 🚀 Running it Locally
+
+If you want to spin this up yourself:
+
+**1. Start the Backend (Python):**
 ```bash
 cd backend
 python -m venv .venv
-
-# Windows
-.venv\Scripts\activate
-
-# macOS/Linux
-source .venv/bin/activate
-
+.\.venv\Scripts\activate  # Windows
 pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-The backend runs at `http://localhost:8000`
-API docs (auto-generated by FastAPI): `http://localhost:8000/docs`
-
-### Frontend
-
+**2. Start the Frontend (React):**
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-Frontend runs at `http://localhost:5173`
-
-### Environment Variables
-
-Create `backend/.env`:
-
-```env
-OPENAI_API_KEY=your-api-key-here
-OPENAI_BASE_URL=https://your-endpoint-here
-```
-
-> If you're using Azure OpenAI or another provider, just swap the base URL.
+*(You'll need to create a `.env` in the backend folder with your `OPENAI_API_KEY`!)*
 
 ---
-
-## How the Pipeline Works
-
-1. **Parse** — extract raw text from uploaded PDF or DOCX
-2. **Analyse JD** — AI extracts required skills, preferred skills, and keyword density targets from the job description
-3. **Rewrite Resume** — AI tailors every section (summary, experience, projects, skills) using extracted keywords, ensuring ATS keyword density across multiple sections
-4. **ATS Score** — keyword matching engine compares rewritten resume against JD terms
-5. **Improve (if needed)** — if ATS score < 75%, a second AI pass integrates missing keywords naturally
-6. **Cover Letter** — AI generates a 4-paragraph, job-specific cover letter in parallel
-7. **Export** — Jinja2 renders resume JSON into HTML → Puppeteer converts to pixel-perfect A4 PDF
-
-Steps 5 and 6 run **in parallel** using `ThreadPoolExecutor` to keep response time under 30s.
-
----
-
-## API Reference
-
-### `POST /api/analyze`
-
-`multipart/form-data`:
-- `resume_file` — PDF or DOCX
-- `job_description` — full JD text
-- `model_id` — AI model to use
-- `template` — `modern` | `classic` | `minimal`
-
-**Response:**
-```json
-{
-  "tailored_resume": { "personal_info": {}, "summary": "...", "experience": [], "skills": {}, "projects": [], ... },
-  "ats_score": 84,
-  "matched_keywords": ["Python", "FastAPI", "REST API"],
-  "missing_keywords": ["Kubernetes"],
-  "cover_letter": { "subject_line": "...", "body": "..." },
-  "job_analysis": { "job_title": "...", "required_skills": [], "preferred_skills": [] }
-}
-```
-
-### `POST /api/export-pdf`
-
-```json
-{ "resume": { ... }, "template": "modern" }
-```
-
-Returns PDF binary (`application/pdf`).
-
-### `POST /api/auth/register` / `POST /api/auth/login`
-
-Standard JWT auth. Returns `{ token, user }` — user object includes `analyses_used`, `analyses_limit`, `is_premium`.
-
----
-
-## Skills Section Categories
-
-The AI organizes skills into 5 clean categories automatically:
-
-| Category | What goes here |
-|----------|---------------|
-| Languages | Python, JavaScript, Java, C++, TypeScript |
-| Frameworks & Libraries | React, Django, Express.js, Node.js, Spring Boot |
-| Databases | MySQL, PostgreSQL, MongoDB, SQLite, Redis |
-| Tools & Technologies | Git, Docker, AWS, GitHub Actions, Postman |
-| Concepts | REST API, Agile/SCRUM, OOP, MVC, JWT, SDLC |
-
----
-
-## What I Learned Building This
-
-- Prompt engineering for structured JSON output — getting the AI to return consistent, ATS-safe content took a lot of iteration
-- Running Puppeteer from Python via subprocess (stdin/stdout pipe) — surprisingly tricky to get right on Windows
-- JWT auth end-to-end in a React + FastAPI stack
-- Parallelizing slow AI calls with `ThreadPoolExecutor` — cut response time from ~75s to under 30s
-- Designing a clean light-theme UI that works well both as a web app and a resume preview
-
----
-
-## Deployment
-
-| Service | What to deploy |
-|---------|---------------|
-| **Railway** | Backend (`backend/` directory) — set `OPENAI_API_KEY` and `OPENAI_BASE_URL` as env vars |
-| **Vercel** | Frontend — set `VITE_API_URL` to your Railway backend URL |
-| **Azure Container Apps** | Both services if you prefer everything in Azure |
-
----
-
-## License
-
-MIT — free to use, fork, or build on top of.
+*Built with ❤️ to beat the ATS bots.*
