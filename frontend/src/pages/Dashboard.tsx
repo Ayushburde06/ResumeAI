@@ -69,7 +69,7 @@ export default function Dashboard() {
     }
   }
 
-  // Show spinner while auth is loading (prevents flash/blank page)
+  // Show spinner while auth is loading
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -77,6 +77,9 @@ export default function Dashboard() {
       </div>
     )
   }
+
+  // Prevent rendering if user is missing (useEffect will redirect)
+  if (!user) return null
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50/60 via-white to-white pt-14">
@@ -89,7 +92,7 @@ export default function Dashboard() {
               Dashboard
             </div>
             <h1 className="text-2xl font-bold text-gray-900">
-              Welcome back, {user?.name.split(' ')[0]} 👋
+              Welcome back, {user?.name?.split(' ')[0]} 👋
             </h1>
             <p className="text-gray-400 text-sm mt-0.5">
               {items.length === 0
