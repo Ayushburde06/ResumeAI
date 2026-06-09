@@ -34,7 +34,7 @@ function timeAgo(isoDate: string): string {
 }
 
 export default function Dashboard() {
-  const { user } = useAuth()
+  const { user, isLoading: authLoading } = useAuth()
   const navigate = useNavigate()
   const [items, setItems] = useState<HistoryListItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -42,12 +42,13 @@ export default function Dashboard() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
 
   useEffect(() => {
+    if (authLoading) return          // wait for auth to finish loading
     if (!user) { navigate('/login'); return }
     listHistory()
       .then(setItems)
       .catch(() => setItems([]))
       .finally(() => setLoading(false))
-  }, [user, navigate])
+  }, [user, navigate, authLoading])
 
   const scoredItems = items.filter(i => i.ats_score !== null)
   const avgAts = scoredItems.length > 0
@@ -66,6 +67,15 @@ export default function Dashboard() {
     } finally {
       setDeletingId(null)
     }
+  }
+
+  // Show spinner while auth is loading (prevents flash/blank page)
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-violet-500 animate-spin" />
+      </div>
+    )
   }
 
   return (
