@@ -18,12 +18,29 @@ const AuthContext = createContext<AuthContextValue>({
   isLoading: false,
 })
 
+function normalizeAuthUser(value: unknown): AuthUser | null {
+  if (typeof value !== 'object' || value === null) return null
+  const data = value as Record<string, unknown>
+  const id = typeof data.id === 'number' ? data.id : Number(data.id)
+  if (!Number.isFinite(id)) return null
+
+  return {
+    id,
+    name: typeof data.name === 'string' ? data.name : String(data.name ?? ''),
+    email: typeof data.email === 'string' ? data.email : String(data.email ?? ''),
+    analyses_used: typeof data.analyses_used === 'number' ? data.analyses_used : Number(data.analyses_used ?? 0) || 0,
+    analyses_limit: typeof data.analyses_limit === 'number' ? data.analyses_limit : Number(data.analyses_limit ?? 3) || 3,
+    is_premium: typeof data.is_premium === 'boolean' ? data.is_premium : Boolean(data.is_premium),
+  }
+}
+
 function loadFromStorage(): { user: AuthUser | null; token: string | null } {
   try {
     const storedToken = localStorage.getItem('auth_token')
     const storedUser = localStorage.getItem('auth_user')
     if (storedToken && storedUser) {
-      return { user: JSON.parse(storedUser) as AuthUser, token: storedToken }
+      const parsed = normalizeAuthUser(JSON.parse(storedUser))
+      if (parsed) return { user: parsed, token: storedToken }
     }
   } catch {
     localStorage.removeItem('auth_token')

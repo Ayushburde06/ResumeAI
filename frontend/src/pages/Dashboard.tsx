@@ -40,17 +40,18 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
+  const safeItems = Array.isArray(items) ? items : []
 
   useEffect(() => {
     if (authLoading) return          // wait for auth to finish loading
     if (!user) { navigate('/login'); return }
     listHistory()
-      .then(setItems)
+      .then((data) => setItems(Array.isArray(data) ? data : []))
       .catch(() => setItems([]))
       .finally(() => setLoading(false))
   }, [user, navigate, authLoading])
 
-  const scoredItems = items.filter(i => i.ats_score !== null)
+  const scoredItems = safeItems.filter(i => i.ats_score !== null)
   const avgAts = scoredItems.length > 0
     ? Math.round(scoredItems.reduce((a, i) => a + (i.ats_score ?? 0), 0) / scoredItems.length)
     : null
@@ -61,7 +62,7 @@ export default function Dashboard() {
     setConfirmDeleteId(null)
     try {
       await deleteHistory(id)
-      setItems((prev) => prev.filter((item) => item.id !== id))
+      setItems((prev) => (Array.isArray(prev) ? prev.filter((item) => item.id !== id) : []))
     } catch {
       // silently re-show the item on failure
     } finally {
@@ -138,7 +139,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-center py-24">
             <Loader2 className="w-6 h-6 text-violet-500 animate-spin" />
           </div>
-        ) : items.length === 0 ? (
+        ) : safeItems.length === 0 ? (
           <div className="text-center py-24 border border-dashed border-gray-200 rounded-2xl bg-white">
             <div className="w-14 h-14 bg-gradient-to-br from-violet-100 to-indigo-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <FileText className="w-7 h-7 text-violet-400" />
@@ -157,7 +158,7 @@ export default function Dashboard() {
           </div>
         ) : (
           <div className="space-y-2.5">
-            {items.map((item) => (
+            {safeItems.map((item) => (
               <div
                 key={item.id}
                 className="group flex items-center gap-4 bg-white border border-gray-100 hover:border-violet-200 rounded-2xl px-5 py-4 transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md hover:-translate-y-0.5"

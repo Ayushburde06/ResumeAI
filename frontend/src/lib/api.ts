@@ -16,6 +16,144 @@ import type {
 
 const BASE = '/api'
 
+function toText(value: unknown, fallback = ''): string {
+  if (typeof value === 'string') return value
+  if (value === null || value === undefined) return fallback
+  return String(value)
+}
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => toText(item).trim())
+    .filter(Boolean)
+}
+
+function normalizePersonalInfo(value: unknown): TailoredResume['personal_info'] {
+  const info = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
+  return {
+    name: toText(info.name),
+    email: toText(info.email),
+    phone: toText(info.phone),
+    location: toText(info.location),
+    linkedin: toText(info.linkedin),
+    github: toText(info.github),
+    website: toText(info.website),
+  }
+}
+
+function normalizeTailoredResume(value: unknown): TailoredResume {
+  const resume = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
+  const experience = Array.isArray(resume.experience)
+    ? resume.experience.map((entry) => {
+        const exp = typeof entry === 'object' && entry !== null ? entry as Record<string, unknown> : {}
+        return {
+          title: toText(exp.title),
+          company: toText(exp.company),
+          location: toText(exp.location),
+          start_date: toText(exp.start_date),
+          end_date: toText(exp.end_date),
+          bullets: toStringArray(exp.bullets),
+        }
+      })
+    : []
+
+  const education = Array.isArray(resume.education)
+    ? resume.education.map((entry) => {
+        const edu = typeof entry === 'object' && entry !== null ? entry as Record<string, unknown> : {}
+        return {
+          degree: toText(edu.degree),
+          institution: toText(edu.institution),
+          location: toText(edu.location),
+          graduation_year: toText(edu.graduation_year),
+          gpa: toText(edu.gpa),
+          honors: toText(edu.honors),
+        }
+      })
+    : []
+
+  const skillsValue = typeof resume.skills === 'object' && resume.skills !== null ? resume.skills as Record<string, unknown> : {}
+  const projects = Array.isArray(resume.projects)
+    ? resume.projects.map((entry) => {
+        const project = typeof entry === 'object' && entry !== null ? entry as Record<string, unknown> : {}
+        return {
+          name: toText(project.name),
+          description: toText(project.description),
+          tech_stack: toStringArray(project.tech_stack),
+          link: toText(project.link),
+          live_link: toText(project.live_link),
+        }
+      })
+    : []
+
+  const certifications = Array.isArray(resume.certifications)
+    ? resume.certifications.map((entry) => {
+        const cert = typeof entry === 'object' && entry !== null ? entry as Record<string, unknown> : {}
+        return {
+          name: toText(cert.name),
+          issuer: toText(cert.issuer),
+          year: toText(cert.year),
+        }
+      })
+    : []
+
+  return {
+    personal_info: normalizePersonalInfo(resume.personal_info),
+    summary: toText(resume.summary),
+    experience,
+    education,
+    skills: {
+      languages: toStringArray(skillsValue.languages),
+      frameworks: toStringArray(skillsValue.frameworks),
+      databases: toStringArray(skillsValue.databases),
+      tools: toStringArray(skillsValue.tools),
+      concepts: toStringArray(skillsValue.concepts),
+    },
+    certifications,
+    projects,
+  }
+}
+
+function normalizeJobAnalysis(value: unknown): JobAnalysis {
+  const analysis = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
+  return {
+    job_title: toText(analysis.job_title),
+    company_type: toText(analysis.company_type),
+    seniority: toText(analysis.seniority),
+    required_skills: toStringArray(analysis.required_skills),
+    preferred_skills: toStringArray(analysis.preferred_skills),
+    key_responsibilities: toStringArray(analysis.key_responsibilities),
+    industry_keywords: toStringArray(analysis.industry_keywords),
+    tone: toText(analysis.tone),
+    must_have: toStringArray(analysis.must_have),
+  }
+}
+
+function normalizeAnalyzeResponse(value: unknown): AnalyzeResponse {
+  const response = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
+  return {
+    tailored_resume: normalizeTailoredResume(response.tailored_resume),
+    ats_score: typeof response.ats_score === 'number' ? response.ats_score : Number(response.ats_score ?? 0) || 0,
+    matched_keywords: toStringArray(response.matched_keywords),
+    missing_keywords: toStringArray(response.missing_keywords),
+    total_keywords: typeof response.total_keywords === 'number' ? response.total_keywords : Number(response.total_keywords ?? 0) || 0,
+    cover_letter: {
+      subject_line: toText((response.cover_letter as { subject_line?: unknown } | undefined)?.subject_line),
+      body: toText((response.cover_letter as { body?: unknown } | undefined)?.body),
+    },
+    application_email: {
+      subject_line: toText((response.application_email as { subject_line?: unknown } | undefined)?.subject_line),
+      body: toText((response.application_email as { body?: unknown } | undefined)?.body),
+    },
+    job_analysis: normalizeJobAnalysis(response.job_analysis),
+    auto_improved: Boolean(response.auto_improved),
+    model_used: response.model_used === undefined ? undefined : toText(response.model_used),
+    analyses_used: typeof response.analyses_used === 'number' ? response.analyses_used : undefined,
+    analyses_limit: typeof response.analyses_limit === 'number' ? response.analyses_limit : undefined,
+    is_premium: typeof response.is_premium === 'boolean' ? response.is_premium : undefined,
+  }
+}
+
 // Attach stored token on every request automatically
 const stored = localStorage.getItem('auth_token')
 if (stored) {
@@ -74,7 +212,7 @@ export async function analyzeResume(
       }
     },
   })
-  return data
+  return normalizeAnalyzeResponse(data)
 }
 
 export async function suggestJobSearch(
@@ -146,7 +284,14 @@ export async function improveAtsScore(params: {
     missing_keywords: params.missingKeywords,
     model: params.modelId || '',
   })
-  return data
+  return {
+    ...data,
+    tailored_resume: normalizeTailoredResume(data.tailored_resume),
+    matched_keywords: toStringArray(data.matched_keywords),
+    missing_keywords: toStringArray(data.missing_keywords),
+    ats_score: typeof data.ats_score === 'number' ? data.ats_score : Number(data.ats_score ?? 0) || 0,
+    total_keywords: typeof data.total_keywords === 'number' ? data.total_keywords : Number(data.total_keywords ?? 0) || 0,
+  }
 }
 
 export async function rescoreAts(
@@ -157,7 +302,13 @@ export async function rescoreAts(
     tailored_resume: tailoredResume,
     job_description: jobDescription,
   })
-  return data
+  return {
+    ...data,
+    matched_keywords: toStringArray(data.matched_keywords),
+    missing_keywords: toStringArray(data.missing_keywords),
+    ats_score: typeof data.ats_score === 'number' ? data.ats_score : Number(data.ats_score ?? 0) || 0,
+    total_keywords: typeof data.total_keywords === 'number' ? data.total_keywords : Number(data.total_keywords ?? 0) || 0,
+  }
 }
 
 export async function searchJobs(filters: JobSearchRequest): Promise<JobSearchResponse> {
@@ -226,12 +377,29 @@ export async function saveHistory(payload: {
 
 export async function listHistory(): Promise<HistoryListItem[]> {
   const { data } = await axios.get<HistoryListItem[]>(`${BASE}/history`)
-  return data
+  return Array.isArray(data) ? data : []
 }
 
 export async function getHistoryEntry(id: number): Promise<HistoryEntry> {
   const { data } = await axios.get<HistoryEntry>(`${BASE}/history/${id}`)
-  return data
+  return {
+    ...data,
+    tailored_resume: normalizeTailoredResume(data.tailored_resume),
+    cover_letter: data.cover_letter
+      ? {
+          subject_line: toText(data.cover_letter.subject_line),
+          body: toText(data.cover_letter.body),
+        }
+      : null,
+    application_email: data.application_email
+      ? {
+          subject_line: toText(data.application_email.subject_line),
+          body: toText(data.application_email.body),
+        }
+      : null,
+    job_analysis: data.job_analysis ? normalizeJobAnalysis(data.job_analysis) : null,
+    job_description: data.job_description ?? null,
+  }
 }
 
 export async function deleteHistory(id: number): Promise<void> {
@@ -334,4 +502,3 @@ export function agentAnalyze(
   // Return cleanup function
   return () => xhr.abort()
 }
-
