@@ -614,7 +614,7 @@ def improve_resume_for_ats(
             },
         ],
         temperature=0.1,
-        max_tokens=3000,
+        max_tokens=2000,    # reduced from 3000 — patch pass needs less output space than full rewrite
         response_format={"type": "json_object"},
     )
     result = json.loads(response.choices[0].message.content)

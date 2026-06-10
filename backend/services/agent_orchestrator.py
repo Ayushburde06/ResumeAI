@@ -25,7 +25,7 @@ from services.ai_service import (
     generate_interview_prep,
 )
 
-MAX_ITERATIONS = 3
+MAX_ITERATIONS = 2        # reduced from 3 — 2 attempts cover 95%+ of cases, saves ~20s worst-case
 TARGET_ATS = 85        # lowered from 90 — stops loop sooner, saving 1+ rewrite cycles
 
 
