@@ -32,15 +32,19 @@ async function main() {
       waitUntil: ['load', 'domcontentloaded'],
     })
 
-    // Measure the actual rendered content height (includes body padding)
-    const contentHeight = await page.evaluate(
-      () => document.documentElement.scrollHeight
-    )
+    await page.addStyleTag({
+      content: `
+        html, body {
+          font-size: 11px !important;
+          line-height: 1.35 !important;
+        }
+        section, div { page-break-inside: avoid; }
+      `
+    })
 
     const pdf = await page.pdf({
-      width: '210mm',
-      height: `${contentHeight}px`,
-      margin: { top: '0', right: '0', bottom: '0', left: '0' },
+      format: 'A4',
+      margin: { top: '8mm', right: '8mm', bottom: '8mm', left: '8mm' },
       printBackground: true,
       preferCSSPageSize: false,
     })
