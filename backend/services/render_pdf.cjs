@@ -29,8 +29,13 @@ async function main() {
       deviceScaleFactor: 1,
     })
     await page.setContent(html, {
-      waitUntil: ['load', 'domcontentloaded'],
+      // 'domcontentloaded' only — do NOT wait for external resources (fonts)
+      // Using 'load' can hang indefinitely if the server has no internet access
+      waitUntil: 'domcontentloaded',
+      timeout: 15000,
     })
+    // Short settle to let CSS paint
+    await new Promise(r => setTimeout(r, 150))
 
     let contentHeight = await page.evaluate(
       () => document.documentElement.scrollHeight

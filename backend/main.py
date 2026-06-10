@@ -1,4 +1,7 @@
 import os
+import shutil
+import subprocess
+import threading
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -92,6 +95,87 @@ async def _warmup_rag():
         print(f"[RAG] Knowledge store loaded: {stats}")
     except Exception as e:
         print(f"[RAG] Warmup skipped: {e}")
+
+
+# ── Persistent Puppeteer PDF server lifecycle ─────────────────────────────────
+
+_pdf_server_proc: subprocess.Popen | None = None
+
+
+def _start_pdf_server() -> None:
+    """Launch pdf_server.cjs in the background and wait for its READY signal."""
+    global _pdf_server_proc
+    node_path = shutil.which("node")
+    if not node_path:
+        print("[PDF] Node.js not found — PDF server not started. Fallback to subprocess.")
+        return
+
+    from pathlib import Path
+    server_script = Path(__file__).parent / "services" / "pdf_server.cjs"
+    if not server_script.exists():
+        print(f"[PDF] pdf_server.cjs not found at {server_script} — PDF server not started.")
+        return
+
+    port = os.environ.get("PDF_SERVER_PORT", "9009")
+    env  = {**os.environ, "PDF_SERVER_PORT": port}
+
+    try:
+        proc = subprocess.Popen(
+            [node_path, str(server_script)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,   # merge stderr into stdout
+            env=env,
+            text=True,
+            bufsize=1,
+        )
+        _pdf_server_proc = proc
+
+        # Wait up to 20s for the READY signal
+        ready = False
+        for _ in range(200):  # 200 × 100 ms = 20 s
+            line = proc.stdout.readline()
+            if not line:
+                break
+            line = line.rstrip()
+            print(f"[PDF-server] {line}")
+            if line.startswith("READY:"):
+                ready = True
+                break
+
+        if ready:
+            print(f"[PDF] Persistent browser server ready on port {port}")
+        else:
+            print("[PDF] Server did not signal READY — will use subprocess fallback")
+
+        # Drain remaining stdout in background thread so process doesn't block
+        def _drain():
+            for line in proc.stdout:
+                print(f"[PDF-server] {line.rstrip()}")
+        threading.Thread(target=_drain, daemon=True).start()
+
+    except Exception as e:
+        print(f"[PDF] Could not start pdf_server.cjs: {e}")
+
+
+@app.on_event("startup")
+async def _start_pdf_browser_server():
+    """Start the persistent Puppeteer browser server in a background thread."""
+    threading.Thread(target=_start_pdf_server, daemon=True).start()
+
+
+@app.on_event("shutdown")
+async def _stop_pdf_browser_server():
+    """Gracefully terminate the PDF server process."""
+    global _pdf_server_proc
+    if _pdf_server_proc and _pdf_server_proc.poll() is None:
+        _pdf_server_proc.terminate()
+        try:
+            _pdf_server_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _pdf_server_proc.kill()
+        print("[PDF] Browser server stopped")
+        _pdf_server_proc = None
+
 
 
 @app.get("/health")
