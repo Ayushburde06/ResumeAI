@@ -32,19 +32,18 @@ async function main() {
       waitUntil: ['load', 'domcontentloaded'],
     })
 
-    await page.addStyleTag({
-      content: `
-        html, body {
-          font-size: 11px !important;
-          line-height: 1.35 !important;
-        }
-        section, div { page-break-inside: avoid; }
-      `
-    })
+    const contentHeight = await page.evaluate(
+      () => document.documentElement.scrollHeight
+    )
+
+    // Cap at A4 height in pixels (297mm ≈ 1122px at 96dpi)
+    const a4Height = 1122
+    const pdfHeight = Math.min(contentHeight, a4Height)
 
     const pdf = await page.pdf({
-      format: 'A4',
-      margin: { top: '8mm', right: '8mm', bottom: '8mm', left: '8mm' },
+      width: '210mm',
+      height: `${pdfHeight}px`,
+      margin: { top: '0', right: '0', bottom: '0', left: '0' },
       printBackground: true,
       preferCSSPageSize: false,
     })
