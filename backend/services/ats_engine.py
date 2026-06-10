@@ -86,9 +86,43 @@ class ATSResult(NamedTuple):
     total_keywords: int
 
 
+# Tech name alias map: JD variant -> canonical form used in normalization
+# Prevents "node.js" in resume vs "nodejs" in JD causing false misses
+TECH_ALIASES: dict[str, str] = {
+    "node.js": "node", "nodejs": "node", "node js": "node",
+    "react.js": "react", "reactjs": "react", "react js": "react",
+    "vue.js": "vue", "vuejs": "vue",
+    "next.js": "nextjs", "nuxt.js": "nuxt",
+    "express.js": "express", "expressjs": "express",
+    "angular.js": "angular", "angularjs": "angular",
+    "three.js": "threejs",
+    "typescript": "ts", "ts": "typescript",
+    "javascript": "js", "js": "javascript",
+    "postgresql": "postgres", "postgres": "postgresql",
+    "mongodb": "mongo", "mongo": "mongodb",
+    "kubernetes": "k8s", "k8s": "kubernetes",
+    "amazon web services": "aws", "aws": "amazon web services",
+    "google cloud platform": "gcp", "gcp": "google cloud platform",
+    "microsoft azure": "azure",
+    "rest api": "restful api", "restful api": "rest api",
+    "ci/cd": "cicd", "cicd": "ci/cd",
+    "git hub": "github",
+    "mongo db": "mongodb",
+    "mern": "mern stack", "mern stack": "mern",
+}
+
+
+def _normalize_tech(text: str) -> str:
+    """Apply tech alias normalization to lowercase text."""
+    for alias, canonical in TECH_ALIASES.items():
+        if alias in text:
+            text = text.replace(alias, canonical)
+    return text
+
+
 def _tokenize(text: str) -> set[str]:
-    text_lower = text.lower()
-    words = re.findall(r"\b[a-z][a-z0-9+#\-.]{1,}\b", text_lower)
+    norm = _normalize_tech(text.lower())
+    words = re.findall(r"\b[a-z][a-z0-9+#\-.]{1,}\b", norm)
     return {w for w in words if w not in STOP_WORDS and len(w) > 2}
 
 

@@ -15,7 +15,6 @@ from services.agent_memory import AgentMemory
 from services.rag_service import build_rag_context_string
 from services.ats_engine import compute_ats_score
 from services.ai_service import (
-    plan_analysis,
     analyse_job_description,
     rewrite_resume,
     improve_resume_for_ats,
@@ -46,6 +45,7 @@ def _enrich_rewrite_with_rag(
     rag_context: str,
     memory: AgentMemory,
     model_id: str | None,
+    missing_keywords: list[str] | None = None,
 ) -> dict:
     """
     Rewrite the resume with RAG context injected into the prompt.
@@ -67,7 +67,13 @@ def _enrich_rewrite_with_rag(
             prefix_parts.append(f"[AGENT SELF-CRITIQUE FROM PREVIOUS ATTEMPTS]\n{critique_block}")
         enriched_resume_text = "\n\n".join(prefix_parts) + "\n\n[CANDIDATE RESUME]\n" + resume_text
 
-    return rewrite_resume(enriched_resume_text, jd_text, job_analysis, model_id=model_id)
+    return rewrite_resume(
+        enriched_resume_text,
+        jd_text,
+        job_analysis,
+        model_id=model_id,
+        missing_keywords=missing_keywords,
+    )
 
 
 def run_agent(
@@ -95,26 +101,25 @@ def run_agent(
     memory = AgentMemory(session_id=str(uuid.uuid4()))
     t_start = time.time()
 
-    # ── Steps 1 + 3 in parallel: Planning & JD Analysis ─────────────────────
-    # plan_analysis and analyse_job_description are independent — run concurrently
-    # to save ~10–20s of sequential LLM wait time.
+    # ── Job Description Analysis ────────────────────────────────────────────
+    # Merged planning and jd_analysis into a single LLM call to save 10-15s
     yield _make_event("planning", "running")
     yield _make_event("jd_analysis", "running")
     try:
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            plan_future = pool.submit(plan_analysis, resume_text, jd_text, model_id)
-            jd_future   = pool.submit(analyse_job_description, jd_text, model_id)
-            plan         = plan_future.result()
-            job_analysis = jd_future.result()
+        job_analysis = analyse_job_description(jd_text, model_id)
 
-        memory.job_title       = plan.get("job_title", "") or job_analysis.get("job_title", "")
-        memory.seniority       = plan.get("seniority", "") or job_analysis.get("seniority", "")
-        memory.required_skills = plan.get("primary_stack", []) or job_analysis.get("required_skills", [])
+        memory.job_title       = job_analysis.get("job_title", "")
+        memory.seniority       = job_analysis.get("seniority", "")
+        memory.required_skills = job_analysis.get("required_skills", [])
+
+        # Compute initial ATS score on raw resume to extract missing keywords
+        original_ats = compute_ats_score(resume_text, jd_text)
+        initial_missing = original_ats.missing_keywords
 
         yield _make_event("planning", "done", {
             "job_title": memory.job_title,
             "seniority": memory.seniority,
-            "strategy": plan.get("rewrite_strategy", ""),
+            "strategy": job_analysis.get("rewrite_strategy", "Targeting job description keywords and structure."),
         })
         yield _make_event("jd_analysis", "done", {
             "job_title": job_analysis.get("job_title", ""),
@@ -152,9 +157,9 @@ def run_agent(
         yield _make_event("rewrite", "running", {"iteration": i + 1, "max_iterations": MAX_ITERATIONS})
         try:
             if i == 0:
-                # First attempt: full rewrite enriched with RAG context
+                # First attempt: full rewrite enriched with RAG context and missing keywords checklist
                 tailored_resume = _enrich_rewrite_with_rag(
-                    resume_text, jd_text, job_analysis, rag_context, memory, model_id
+                    resume_text, jd_text, job_analysis, rag_context, memory, model_id, initial_missing
                 )
             else:
                 # Subsequent attempts: targeted ATS improvement with critique guidance
@@ -182,9 +187,10 @@ def run_agent(
                 "target_reached": ats.score >= TARGET_ATS,
             })
 
-            if ats.score >= TARGET_ATS:
-                # Target reached — no need for critique or more iterations
-                memory.add_iteration(i, ats.score, ats.matched_keywords, ats.missing_keywords, "Target ATS reached.")
+            if ats.score >= TARGET_ATS or (i == 0 and ats.score >= 78):
+                # Target reached or score is high enough to skip second iteration (saves ~15s)
+                reason = "Target ATS reached." if ats.score >= TARGET_ATS else f"First pass score high enough ({ats.score}%), skipping critique."
+                memory.add_iteration(i, ats.score, ats.matched_keywords, ats.missing_keywords, reason)
                 break
 
             # ── Critique ──────────────────────────────────────────────────

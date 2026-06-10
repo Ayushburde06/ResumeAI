@@ -171,7 +171,8 @@ Be exhaustive — extract every specific term, technology, tool, methodology, an
   "tone": "formal/casual/technical/...",
   "must_have": ["hard requirements that MUST appear on the resume — degrees, certs, specific tools"],
   "exact_keywords": ["every specific term worth ATS-matching: tool names, framework names, language names, methodology names, certification names — include both common variants e.g. 'Node.js' AND 'NodeJS', 'REST API' AND 'RESTful API', 'JavaScript' AND 'JS' where both appear in the JD"],
-  "keyword_density_targets": ["top 8-10 highest-priority keywords that should appear in 2+ resume sections (summary + experience or summary + skills) for maximum ATS weight"]
+  "keyword_density_targets": ["top 8-10 highest-priority keywords that should appear in 2+ resume sections (summary + experience or summary + skills) for maximum ATS weight"],
+  "rewrite_strategy": "one sentence: what to prioritize in the rewrite based on the JD requirements"
 }}
 
 JOB DESCRIPTION:
@@ -282,6 +283,8 @@ Return ONLY valid JSON — use ** only for inline emphasis inside string values.
 
 REWRITE_PROMPT = """Improve and tailor the candidate's resume for this role using the system rules.
 Focus mainly on projects, bullet quality, one-page balance, technical clarity, and ATS readability.
+
+{keyword_injection}
 
 EXISTING RESUME:
 {resume}
@@ -565,8 +568,29 @@ def analyse_job_description(jd_text: str, model_id: str | None = None) -> dict:
 
 
 @_safe_call
-def rewrite_resume(resume_text: str, jd_text: str, job_analysis: dict, model_id: str | None = None) -> dict:
+def rewrite_resume(
+    resume_text: str,
+    jd_text: str,
+    job_analysis: dict,
+    model_id: str | None = None,
+    missing_keywords: list[str] | None = None,
+) -> dict:
+    """Rewrite a resume for a job. If missing_keywords are provided (from pre-analysis),
+    they are injected directly into the prompt so the model knows exactly what to cover
+    on the FIRST pass — dramatically improving first-pass ATS score."""
     client, model = _get_client(model_id)
+
+    # Build keyword injection block for first-pass targeting
+    if missing_keywords:
+        top_kw = missing_keywords[:20]  # top 20 most important missing keywords
+        keyword_injection = (
+            "MANDATORY KEYWORD CHECKLIST — these specific terms MUST appear in the final resume "
+            "(weave naturally into summary, bullets, and skills — do NOT list them as a dump):\n"
+            + ", ".join(top_kw)
+        )
+    else:
+        keyword_injection = ""
+
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -577,6 +601,7 @@ def rewrite_resume(resume_text: str, jd_text: str, job_analysis: dict, model_id:
                     resume=resume_text,
                     job_analysis=json.dumps(job_analysis),
                     jd=jd_text,
+                    keyword_injection=keyword_injection,
                 ),
             },
         ],
