@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded square -->
+  <rect width="64" height="64" rx="14" ry="14" fill="url(#bg)"/>
+
+  <!-- Letter R -->
+  <text
+    x="10"
+    y="47"
+    font-family="'Arial Black', 'Helvetica Neue', Arial, sans-serif"
+    font-size="42"
+    font-weight="900"
+    fill="white"
+    letter-spacing="-2"
+  >R</text>
+
+  <!-- Sparkle star top-right -->
+  <g transform="translate(44, 10)">
+    <!-- 4-point star -->
+    <path d="M8,0 L9.5,6.5 L16,8 L9.5,9.5 L8,16 L6.5,9.5 L0,8 L6.5,6.5 Z"
+          fill="#facc15" opacity="0.95"/>
+  </g>
+</svg>
