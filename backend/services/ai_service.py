@@ -129,7 +129,7 @@ def _get_client(model_id: str | None = None) -> tuple[OpenAI, str]:
         _clients[model_id] = OpenAI(
             base_url=base_url,
             api_key=cfg["api_key"],
-            timeout=90.0,
+            timeout=45.0,      # reduced from 90s — prevents 180s stall on hung calls
             max_retries=1,
         )
 
