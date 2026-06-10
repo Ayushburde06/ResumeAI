@@ -51,7 +51,7 @@ def save_history(
     return {"id": entry.id, "message": "Saved to history."}
 
 
-@router.get("/")
+@router.get("")
 def list_history(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),

@@ -305,8 +305,10 @@ async def export_pdf(
         pdf_bytes = generate_pdf(body.resume, body.template)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception:
-        raise HTTPException(status_code=500, detail="PDF generation failed. Please try again.")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
 
     filename = _safe_pdf_filename(body.resume, body.template)
     return StreamingResponse(

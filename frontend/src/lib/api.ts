@@ -22,6 +22,14 @@ if (stored) {
   axios.defaults.headers.common['Authorization'] = `Bearer ${stored}`
 }
 
+// Intercept responses to catch HTML pages (e.g. from Vercel proxy fallback)
+axios.interceptors.response.use((response) => {
+  if (typeof response.data === 'string' && response.data.trim().startsWith('<!DOCTYPE html>')) {
+    throw new Error('API Error: Received an HTML page instead of JSON. The backend proxy might be failing or the backend is unreachable.');
+  }
+  return response;
+});
+
 async function parseApiError(err: unknown): Promise<string> {
   if (isAxiosError(err) && err.response?.data) {
     const data = err.response.data
@@ -217,7 +225,7 @@ export async function saveHistory(payload: {
 }
 
 export async function listHistory(): Promise<HistoryListItem[]> {
-  const { data } = await axios.get<HistoryListItem[]>(`${BASE}/history/`)
+  const { data } = await axios.get<HistoryListItem[]>(`${BASE}/history`)
   return data
 }
 
