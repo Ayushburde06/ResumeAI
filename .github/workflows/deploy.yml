@@ -23,22 +23,39 @@ jobs:
             set -e
 
             # ── Go to project directory ────────────────────────────────────────
-            # Change this path if your project is cloned elsewhere on the server
-            cd ~/resume-saas-main
+            if [ -d "$HOME/ResumeAI" ]; then
+              cd "$HOME/ResumeAI"
+            elif [ -d "$HOME/resume-saas-main" ]; then
+              cd "$HOME/resume-saas-main"
+            else
+              echo "Error: Project directory not found on server!"
+              exit 1
+            fi
 
             echo "=== Pulling latest code ==="
             git fetch origin main
             git reset --hard origin/main
 
+            # ── Detect docker-compose command ──────────────────────────────────
+            if docker compose version >/dev/null 2>&1; then
+              COMPOSE_CMD="docker compose"
+            elif docker-compose version >/dev/null 2>&1; then
+              COMPOSE_CMD="docker-compose"
+            else
+              echo "Error: Neither 'docker compose' nor 'docker-compose' found!"
+              exit 1
+            fi
+            echo "Using compose command: $COMPOSE_CMD"
+
             echo "=== Rebuilding and restarting containers ==="
-            docker compose down --remove-orphans
-            docker compose up --build -d
+            $COMPOSE_CMD down --remove-orphans
+            $COMPOSE_CMD up --build -d
 
             echo "=== Waiting for containers to be healthy ==="
             sleep 5
-            docker compose ps
+            $COMPOSE_CMD ps
 
             echo "=== Recent backend logs ==="
-            docker compose logs backend --tail=30
+            $COMPOSE_CMD logs backend --tail=30
 
             echo "=== Deploy complete ==="
