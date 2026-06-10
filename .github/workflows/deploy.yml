@@ -1,0 +1,44 @@
+name: Deploy to AWS EC2
+
+on:
+  push:
+    branches:
+      - main   # auto-deploy every time you push to main
+
+jobs:
+  deploy:
+    name: SSH → Pull → Rebuild → Restart
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. SSH into EC2 and deploy ───────────────────────────────────────────
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ secrets.EC2_HOST }}        # EC2 public IP or domain
+          username: ${{ secrets.EC2_USER }}        # e.g. ubuntu, ec2-user, admin
+          key:      ${{ secrets.EC2_SSH_KEY }}     # contents of your .pem private key
+          port:     22
+          script: |
+            set -e
+
+            # ── Go to project directory ────────────────────────────────────────
+            # Change this path if your project is cloned elsewhere on the server
+            cd ~/resume-saas-main
+
+            echo "=== Pulling latest code ==="
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "=== Rebuilding and restarting containers ==="
+            docker compose down --remove-orphans
+            docker compose up --build -d
+
+            echo "=== Waiting for containers to be healthy ==="
+            sleep 5
+            docker compose ps
+
+            echo "=== Recent backend logs ==="
+            docker compose logs backend --tail=30
+
+            echo "=== Deploy complete ==="
