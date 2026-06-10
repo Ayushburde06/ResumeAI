@@ -32,12 +32,27 @@ async function main() {
       waitUntil: ['load', 'domcontentloaded'],
     })
 
-    const contentHeight = await page.evaluate(
+    let contentHeight = await page.evaluate(
       () => document.documentElement.scrollHeight
     )
 
     // Cap at A4 height in pixels (297mm ≈ 1122px at 96dpi)
     const a4Height = 1122
+
+    // If content overflows A4 height, zoom it down to fit on a single page
+    if (contentHeight > a4Height) {
+      // Zoom down (cap min scale at 0.85 to keep text readable)
+      const scale = Math.max(0.85, a4Height / contentHeight)
+      await page.evaluate((s) => {
+        document.body.style.zoom = s
+      }, scale)
+
+      // Re-measure content height after scaling
+      contentHeight = await page.evaluate(
+        () => document.documentElement.scrollHeight
+      )
+    }
+
     const pdfHeight = Math.min(contentHeight, a4Height)
 
     const pdf = await page.pdf({
