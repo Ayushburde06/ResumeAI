@@ -185,24 +185,26 @@ export default function Results({ injectedState }: Props = {}) {
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Job analysis banner */}
         {job_analysis.job_title && (
-          <div className="flex items-center gap-3 mb-6 p-4 bg-white border border-gray-100 rounded-2xl shadow-sm animate-fade-in">
-            <div className="w-10 h-10 bg-brand-100 rounded-xl flex items-center justify-center flex-shrink-0">
-              <Briefcase className="w-5 h-5 text-brand-600" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-semibold text-gray-900">{job_analysis.job_title}</div>
-              <div className="text-sm text-gray-500 flex items-center gap-3 mt-0.5">
-                {job_analysis.seniority && <span className="capitalize">{job_analysis.seniority} level</span>}
-                {job_analysis.company_type && <span>· {job_analysis.company_type}</span>}
-                {job_analysis.tone && <span>· {job_analysis.tone} tone</span>}
-                {hasAgentTrace && (
-                  <span className="flex items-center gap-1 text-indigo-600 font-medium">
-                    · <Bot className="w-3 h-3" /> Agent ({agentResult!.agent_trace!.iterations_run} iterations)
-                  </span>
-                )}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-6 p-4 bg-white border border-gray-100 rounded-2xl shadow-sm animate-fade-in justify-between">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className="w-10 h-10 bg-brand-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                <Briefcase className="w-5 h-5 text-brand-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold text-gray-900 truncate">{job_analysis.job_title}</div>
+                <div className="text-sm text-gray-500 flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5">
+                  {job_analysis.seniority && <span className="capitalize">{job_analysis.seniority} level</span>}
+                  {job_analysis.company_type && <span>· {job_analysis.company_type}</span>}
+                  {job_analysis.tone && <span>· {job_analysis.tone} tone</span>}
+                  {hasAgentTrace && (
+                    <span className="flex items-center gap-1 text-indigo-600 font-medium">
+                      · <Bot className="w-3 h-3" /> Agent ({agentResult!.agent_trace!.iterations_run} iterations)
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
-            <div className="flex flex-wrap gap-1.5 max-w-sm justify-end">
+            <div className="flex flex-wrap gap-1.5 justify-start sm:justify-end w-full sm:w-auto sm:max-w-sm">
               {job_analysis.required_skills?.slice(0, 5).map((s) => (
                 <span key={s} className="px-2 py-0.5 bg-brand-50 text-brand-700 border border-brand-100 rounded-full text-xs font-medium">{s}</span>
               ))}

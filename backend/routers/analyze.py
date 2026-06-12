@@ -165,8 +165,10 @@ async def analyze(
     try:
         job_analysis = analyse_job_description(job_description, model_id=model_id)
         tailored_resume = rewrite_resume(resume_text, job_description, job_analysis, model_id=model_id)
-    except Exception:
-        raise HTTPException(status_code=502, detail="AI service is temporarily unavailable. Please try again.")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=502, detail=f"AI service is temporarily unavailable. Error: {str(e)}")
 
     tailored_text = json.dumps(tailored_resume)
     ats = compute_ats_score(tailored_text, job_description)
@@ -211,8 +213,10 @@ async def analyze(
                 )
                 cover_letter = cover_future.result()
                 application_email = email_future.result()
-    except Exception:
-        raise HTTPException(status_code=502, detail="AI service is temporarily unavailable. Please try again.")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=502, detail=f"AI service is temporarily unavailable. Error: {str(e)}")
 
     # ── Post-analysis: increment count + auto-save history ──────────────────
     analyses_used = 0

@@ -72,4 +72,8 @@ npm run dev
 
 *(You'll need to create a `.env` in the backend folder with your `OPENAI_API_KEY`!)*
 
+For production, set `ALLOWED_ORIGINS` in `backend/.env` to your deployed frontend origin.
+
+If your frontend is served over HTTPS, `VITE_API_BASE_URL` must also be an HTTPS backend URL, such as `https://api.yourdomain.com/api`. A raw `http://` backend URL will be blocked by the browser as mixed content.
+
 ---

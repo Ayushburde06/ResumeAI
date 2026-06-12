@@ -71,14 +71,14 @@ export default function HistoryResults() {
     <div>
       {/* Breadcrumb banner */}
       <div className="fixed top-14 left-0 right-0 z-40 bg-white/90 backdrop-blur border-b border-gray-200 px-4 py-2 flex items-center gap-3">
-        <Link to="/dashboard" className="flex items-center gap-1.5 text-gray-500 hover:text-gray-900 text-sm transition">
+        <Link to="/dashboard" className="flex items-center gap-1.5 text-gray-500 hover:text-gray-900 text-sm transition shrink-0">
           <ArrowLeft className="w-4 h-4" />
           Dashboard
         </Link>
-        <span className="text-gray-300">›</span>
-        <span className="text-gray-700 text-sm truncate">{entry.job_title || 'Saved Resume'}</span>
+        <span className="text-gray-300 shrink-0">›</span>
+        <span className="text-gray-700 text-sm truncate min-w-0 flex-1">{entry.job_title || 'Saved Resume'}</span>
         {entry.ats_score !== null && (
-          <span className="ml-auto text-xs text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+          <span className="ml-auto text-xs text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full shrink-0">
             {entry.ats_score}% ATS
           </span>
         )}

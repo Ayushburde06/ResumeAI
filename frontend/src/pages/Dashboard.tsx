@@ -112,7 +112,7 @@ export default function Dashboard() {
 
         {/* Stats strip */}
         {!loading && (
-          <div className="grid grid-cols-3 gap-3 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
             <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
               <p className="text-2xl font-bold text-gray-900">{items.length}</p>
               <p className="text-xs text-gray-400 mt-0.5">Saved resumes</p>

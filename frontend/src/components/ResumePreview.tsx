@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Download, Eye, FileCode, Loader2, Pencil } from 'lucide-react'
 import type { TailoredResume } from '../types'
 import { exportLatex, exportPdf } from '../lib/api'
@@ -653,6 +653,26 @@ export default function ResumePreview({ resume, onResumeChange, onEditComplete, 
   const [exportingTex, setExportingTex] = useState(false)
   const [editing, setEditing] = useState(false)
 
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [scale, setScale] = useState(1)
+
+  useEffect(() => {
+    if (!containerRef.current) return
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const width = entry.contentRect.width
+        const targetWidth = 595
+        if (width < targetWidth) {
+          setScale(width / targetWidth)
+        } else {
+          setScale(1)
+        }
+      }
+    })
+    resizeObserver.observe(containerRef.current)
+    return () => resizeObserver.disconnect()
+  }, [])
+
   function handleToggleEdit() {
     if (editing) {
       onEditComplete?.()
@@ -690,14 +710,14 @@ export default function ResumePreview({ resume, onResumeChange, onEditComplete, 
 
   return (
     <div className="card p-5 space-y-5 animate-slide-up">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
           <h3 className="font-semibold text-gray-900">Tailored Resume</h3>
           <p className="text-sm text-gray-500 mt-0.5">
             {editing ? 'Edit any section, then click Done to update your preview' : 'AI-optimised for this role'}
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto shrink-0">
           <button
             onClick={handleToggleEdit}
             disabled={rescoring}
@@ -736,12 +756,12 @@ export default function ResumePreview({ resume, onResumeChange, onEditComplete, 
 
       <div>
         <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2.5">Choose Layout</p>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
           {TEMPLATES.map((t) => (
             <button
               key={t.id}
               onClick={() => setTemplate(t.id)}
-              className={`rounded-xl border-2 p-2.5 text-left transition-all focus:outline-none ${
+              className={`rounded-xl border-2 p-1.5 sm:p-2.5 text-left transition-all focus:outline-none ${
                 template === t.id
                   ? 'border-indigo-500 bg-indigo-50/50 shadow-sm'
                   : 'border-gray-100 hover:border-gray-300 bg-white'
@@ -763,8 +783,21 @@ export default function ResumePreview({ resume, onResumeChange, onEditComplete, 
         </div>
       ) : (
         <div>
-          <div className="rounded-xl border border-neutral-200 bg-neutral-100 p-4 sm:p-6 shadow-inner flex justify-center overflow-x-auto">
-            <div className="w-[595px] h-[842px] bg-white shadow-xl border border-neutral-300 rounded-sm flex flex-col justify-start relative overflow-hidden shrink-0 select-none">
+          <div
+            ref={containerRef}
+            className="rounded-xl border border-neutral-200 bg-neutral-100 p-4 shadow-inner relative overflow-hidden"
+            style={{ height: `${842 * scale + 32}px` }}
+          >
+            <div
+              className="bg-white shadow-xl border border-neutral-300 rounded-sm flex flex-col justify-start relative overflow-hidden select-none absolute left-1/2"
+              style={{
+                top: '16px',
+                width: '595px',
+                height: '842px',
+                transform: `translateX(-50%) scale(${scale})`,
+                transformOrigin: 'top center',
+              }}
+            >
               {template === 'modern' && <div className="px-7 py-5 flex-1 flex flex-col justify-start"><ProfessionalResume resume={resume} /></div>}
               {template === 'classic' && <div className="px-7 py-5 flex-1 flex flex-col justify-start"><ClassicResume resume={resume} /></div>}
               {template === 'minimal' && <div className="flex-1 flex h-[842px]"><SidebarResume resume={resume} /></div>}

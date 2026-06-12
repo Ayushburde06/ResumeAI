@@ -371,7 +371,7 @@ function AppForm() {
         </div>
 
         {/* Steps */}
-        <div className="grid grid-cols-4 gap-4 mb-10">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10">
           {STEPS.map((step, i) => (
             <div key={i} className="flex flex-col items-center text-center gap-2">
               <div className="w-11 h-11 rounded-2xl bg-brand-600 text-white flex items-center justify-center shadow-md shadow-brand-200">

@@ -14,7 +14,7 @@ import type {
   TailoredResume,
 } from '../types'
 
-const BASE = '/api'
+const BASE = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
 
 function toText(value: unknown, fallback = ''): string {
   if (typeof value === 'string') return value
@@ -461,36 +461,53 @@ export function agentAnalyze(
   xhr.setRequestHeader('Authorization', `Bearer ${token}`)
   xhr.setRequestHeader('Accept', 'text/event-stream')
 
-  let buffer = ''
+  let sseBuffer = ''
+  let lastResponseLength = 0
 
-  xhr.onprogress = () => {
-    // Append new chunk to buffer
-    const newChunk = xhr.responseText.slice(buffer.length)
-    buffer = xhr.responseText
+  const flushSseBuffer = () => {
+    // SSE events are separated by a blank line. Keep any partial event in the buffer
+    // so chunked production responses do not lose data between onprogress calls.
+    const events = sseBuffer.split(/\n\n/)
+    sseBuffer = events.pop() ?? ''
 
-    // Split on SSE line separator and process each line
-    const lines = newChunk.split('\n')
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed.startsWith('data:')) continue
-      const jsonStr = trimmed.slice(5).trim()
-      if (!jsonStr) continue
+    for (const event of events) {
+      const dataLines = event
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith('data:'))
 
-      let parsed: AgentStep & { result?: AgentAnalyzeResult }
-      try {
-        parsed = JSON.parse(jsonStr)
-      } catch {
-        continue
-      }
+      for (const dataLine of dataLines) {
+        const jsonStr = dataLine.slice(5).trim()
+        if (!jsonStr) continue
 
-      if (parsed.step === 'complete' && parsed.result) {
-        onComplete(parsed.result)
-      } else if (parsed.step === 'error') {
-        onError(parsed.message ?? 'Agent encountered an error.')
-      } else {
-        onStep(parsed as AgentStep)
+        let parsed: AgentStep & { result?: AgentAnalyzeResult }
+        try {
+          parsed = JSON.parse(jsonStr)
+        } catch {
+          continue
+        }
+
+        if (parsed.step === 'complete' && parsed.result) {
+          onComplete(parsed.result)
+        } else if (parsed.step === 'error') {
+          onError(parsed.message ?? 'Agent encountered an error.')
+        } else {
+          onStep(parsed as AgentStep)
+        }
       }
     }
+  }
+
+  xhr.onprogress = () => {
+    const chunk = xhr.responseText.slice(lastResponseLength)
+    lastResponseLength = xhr.responseText.length
+    sseBuffer += chunk
+    flushSseBuffer()
+  }
+
+  xhr.onload = () => {
+    // Process any final buffered event after the last network chunk arrives.
+    flushSseBuffer()
   }
 
   xhr.onerror = () => onError('Network error. Please check your connection and try again.')

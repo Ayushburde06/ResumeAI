@@ -24,8 +24,8 @@ from services.ai_service import (
     generate_interview_prep,
 )
 
-MAX_ITERATIONS = 2        # reduced from 3 — 2 attempts cover 95%+ of cases, saves ~20s worst-case
-TARGET_ATS = 85        # lowered from 90 — stops loop sooner, saving 1+ rewrite cycles
+MAX_ITERATIONS = 3        # up to 3 iterations
+TARGET_ATS = 90        # target score >= 90
 
 
 def _make_event(step: str, status: str = "running", data: dict | None = None) -> str:
@@ -187,9 +187,9 @@ def run_agent(
                 "target_reached": ats.score >= TARGET_ATS,
             })
 
-            if ats.score >= TARGET_ATS or (i == 0 and ats.score >= 78):
-                # Target reached or score is high enough to skip second iteration (saves ~15s)
-                reason = "Target ATS reached." if ats.score >= TARGET_ATS else f"First pass score high enough ({ats.score}%), skipping critique."
+            if ats.score >= TARGET_ATS:
+                # Target reached
+                reason = "Target ATS reached."
                 memory.add_iteration(i, ats.score, ats.matched_keywords, ats.missing_keywords, reason)
                 break
 
