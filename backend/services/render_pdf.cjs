@@ -46,8 +46,8 @@ async function main() {
 
     // If content overflows A4 height, zoom it down to fit on a single page
     if (contentHeight > a4Height) {
-      // Zoom down (cap min scale at 0.85 to keep text readable)
-      const scale = Math.max(0.85, a4Height / contentHeight)
+      // Zoom down (cap min scale at 0.65 to keep text readable)
+      const scale = Math.max(0.65, a4Height / contentHeight)
       await page.evaluate((s) => {
         document.body.style.zoom = s
       }, scale)

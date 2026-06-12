@@ -83,7 +83,7 @@ async function renderPdf(html) {
 
     // If content overflows A4 height, zoom it down to fit on a single page
     if (contentHeight > A4_HEIGHT_PX) {
-      const scale = Math.max(0.85, A4_HEIGHT_PX / contentHeight)
+      const scale = Math.max(0.65, A4_HEIGHT_PX / contentHeight)
       await page.evaluate((s) => { document.body.style.zoom = s }, scale)
       contentHeight = await page.evaluate(
         () => document.documentElement.scrollHeight

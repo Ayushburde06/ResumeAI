@@ -789,7 +789,7 @@ export default function ResumePreview({ resume, onResumeChange, onEditComplete, 
             style={{ height: `${842 * scale + 32}px` }}
           >
             <div
-              className="bg-white shadow-xl border border-neutral-300 rounded-sm flex flex-col justify-start relative overflow-hidden select-none absolute left-1/2"
+              className="bg-white shadow-xl border border-neutral-300 rounded-sm flex flex-col justify-start relative overflow-y-auto select-none absolute left-1/2"
               style={{
                 top: '16px',
                 width: '595px',
