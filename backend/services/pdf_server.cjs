@@ -90,11 +90,9 @@ async function renderPdf(html) {
       )
     }
 
-    const pdfHeight = Math.min(contentHeight, A4_HEIGHT_PX)
-
     const pdf = await page.pdf({
       width: '210mm',
-      height: `${pdfHeight}px`,
+      height: '297mm',
       margin: { top: '0', right: '0', bottom: '0', left: '0' },
       printBackground: true,
       preferCSSPageSize: false,

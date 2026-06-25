@@ -171,7 +171,7 @@ Be exhaustive — extract every specific term, technology, tool, methodology, an
   "tone": "formal/casual/technical/...",
   "must_have": ["hard requirements that MUST appear on the resume — degrees, certs, specific tools"],
   "exact_keywords": ["every specific term worth ATS-matching: tool names, framework names, language names, methodology names, certification names — include both common variants e.g. 'Node.js' AND 'NodeJS', 'REST API' AND 'RESTful API', 'JavaScript' AND 'JS' where both appear in the JD"],
-  "keyword_density_targets": ["top 8-10 highest-priority keywords that should appear in 2+ resume sections (summary + experience or summary + skills) for maximum ATS weight"],
+  "keyword_density_targets": ["top 6-8 highest-priority keywords to cover naturally somewhere in the resume, without forcing repetition in every section"],
   "rewrite_strategy": "one sentence: what to prioritize in the rewrite based on the JD requirements"
 }}
 
@@ -208,6 +208,7 @@ WRITING STYLE:
 ONE-PAGE FORMAT RULES:
 - The final resume must fit naturally on one A4 page.
 - Keep summary to EXACTLY 2 sentences maximum. First sentence: who you are + core stack. Second sentence: one specific achievement or context. Do NOT mention the target company or job title by name — keep it general. Do NOT write more than 2 sentences.
+- Keep the summary human and readable. Avoid listing more than 3 technologies in the summary, even if the JD contains many keywords.
 - Keep experience to max 3 roles and max 3 bullets per role.
 - Keep projects to the most relevant 2-3 projects.
 - Because the app schema has one project description field, write each project description as 2-3 concise bullet points separated by \n (newline character). Never collapse to fewer than 2 lines.
@@ -253,12 +254,13 @@ SKILLS SECTION RULES:
 - Max per category: languages 6, frameworks 6, databases 4, tools 6, concepts 5.
 - Keep each category SHORT and clean. A recruiter should be able to scan it in 3 seconds.
 
-ATS RULES — TARGET 95%+ MATCH:
+ATS RULES — TARGET HIGH MATCH WITHOUT OVERSTUFFING:
 - Cover EVERY term in job_analysis.required_skills and job_analysis.must_have. Missing even one required skill drops the ATS score significantly.
 - Cover as many terms as possible from job_analysis.preferred_skills and job_analysis.industry_keywords.
 - Use exact JD phrasing for keywords — ATS systems match exact strings. If the JD says "Node.js", write "Node.js" not "NodeJS". If it says "RESTful API", write "RESTful API".
-- For the top 8-10 priority keywords (job_analysis.keyword_density_targets), make them appear in at least 2 sections: summary AND experience/skills. Keyword density across sections increases ATS weight.
+- For the top 6-8 priority keywords (job_analysis.keyword_density_targets), cover them naturally across the resume, but do not repeat the same term in every section.
 - Weave keywords into natural sentences — do not list them separately or pad bullets with keyword dumps.
+- If a keyword already appears clearly in one section, do not repeat it just to increase density unless it genuinely improves readability.
 - Keep formatting ATS-readable: no tables, icons, graphics, or complex wording in returned content.
 - Use both common variants where both appear in the JD (e.g. "REST API" and "RESTful API", "JavaScript" and "JS").
 - Add ADJACENT IMPLIED SKILLS: If the JD requires a skill the candidate almost certainly has based on their existing stack, add it naturally. Rules:
@@ -275,7 +277,7 @@ ATS RULES — TARGET 95%+ MATCH:
 - NEVER put generic words in tech_stack: no "testing", "unit test", "integration test", "front-end", "back-end", "web development", "HTTP", "JSON", "MVC Framework", "REST API" — these are concepts, not technologies. Keep tech_stack clean and scannable.
 
 EMPHASIS RULES:
-- Use **double asterisks** only for important technologies, metrics already present, and job-matching keywords.
+- Use **double asterisks** only for important technologies, metrics already present, and a few job-matching keywords. Do not bold every tech term.
 - Bold 2-3 key terms per bullet at most.
 - Never bold entire sentences.
 
@@ -301,7 +303,7 @@ Return JSON with EXACTLY this shape:
     "name": "...", "email": "...", "phone": "...", "location": "...",
     "linkedin": "...", "github": "...", "website": "..."
   }},
-  "summary": "2-3 lines in implied first-person tone — honest, specific to the candidate's actual stack, early-career but confident. Example: 'MCA graduate with hands-on experience building full-stack web applications using **Python**, **Django**, and **React**. Worked on production backend services during internship at CrystalTech; comfortable with REST APIs, SQL/NoSQL databases, and SDLC workflows.'",
+  "summary": "2-3 lines in implied first-person tone — honest, specific to the candidate's actual stack, early-career but confident. Example: 'MCA graduate with hands-on experience building full-stack web applications using **Python** and **React**. Worked on backend services during internship at CrystalTech and is comfortable with REST APIs, SQL/NoSQL databases, and SDLC workflows.'",
   "experience": [{{
     "title": "...", "company": "...", "location": "...",
     "start_date": "Mon YYYY", "end_date": "Mon YYYY or Present",
@@ -333,7 +335,7 @@ CRITICAL RULES:
 - Extract and name specific libraries, packages, and platforms from the original input. Specificity sounds human and genuine.
 - NEVER use overused buzzwords: spearheaded, orchestrated, synergized, revolutionized, pioneered, championed, leveraged, utilized.
 - Write full phrases before abbreviations: "Amazon Web Services (AWS)"
-- Weave keywords into summary, experience bullets, AND skills section
+- Weave keywords into the most natural section, and only repeat the strongest few across a second section when it reads cleanly.
 - Do NOT fabricate anything
 - Keep **bold** emphasis on metrics, tech names, and JD keywords (2-3 per bullet)
 - Improve project descriptions with what was built, features, architecture, and outcomes — NOT by repeating tech names already listed in the tech_stack array. Bullets describe behaviour and results; tech_stack lists the tools.
@@ -362,17 +364,17 @@ SKILLS SECTION — DO NOT POLLUTE:
 
 - Return ONLY valid JSON"""
 
-ATS_IMPROVE_PROMPT = """Your goal: achieve 95%+ ATS keyword match by integrating ALL missing keywords naturally into the resume.
+ATS_IMPROVE_PROMPT = """Your goal: improve ATS coverage by integrating the missing keywords naturally without turning the resume into a keyword wall.
 
-MISSING KEYWORDS — integrate every single one (do not skip any):
+MISSING KEYWORDS — integrate each one only when it fits naturally and truthfully:
 {missing_keywords}
 
-KEYWORD DENSITY TARGETS from job analysis (make these appear in 2+ sections):
+KEYWORD DENSITY TARGETS from job analysis (cover these naturally, but avoid repeating them in every section):
 {density_targets}
 
 MANDATORY COVERAGE CHECKLIST:
-- Every keyword in the missing list MUST appear somewhere in the final resume (summary, bullets, skills, or tech_stack).
-- Priority keywords should appear in BOTH summary AND experience/skills sections.
+- Every keyword in the missing list should appear somewhere in the final resume if it can be added truthfully and naturally.
+- Priority keywords may appear in one strong section instead of being repeated in every section.
 - Use exact JD phrasing — ATS matches exact strings. Do not substitute synonyms for keywords.
 - Integrate naturally into existing bullets by replacing weaker words — do not create keyword dumps.
 - Add ADJACENT IMPLIED SKILLS that are missing but realistically held by the candidate:
@@ -383,7 +385,7 @@ MANDATORY COVERAGE CHECKLIST:
   * SQL user → SQL, relational database (if not listed)
   * NoSQL user → NoSQL, document database (if not listed)
   Add these to the skills section only if they are genuinely related to the candidate's existing stack.
-- Fill each project's tech_stack array comprehensively — include ALL technologies visible in that project's description. A richer tech_stack boosts ATS coverage without changing visible text.
+- Fill each project's tech_stack array with the core stack only. Do not pad it with every adjacent tool or repeat technologies already obvious from the description.
 
 CURRENT RESUME (JSON):
 {resume}
@@ -498,8 +500,30 @@ _BANNED_SKILLS = {
 }
 
 
+def _dedupe_keep_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for item in items:
+        normalized = re.sub(r"\s+", " ", str(item).replace("**", "").strip()).lower()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(item)
+    return deduped
+
+
+def _trim_to_two_sentences(text: str) -> str:
+    parts = re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", text.strip())
+    if len(parts) <= 2:
+        return text.strip()
+    return " ".join(parts[:2]).strip()
+
+
 def _clean_resume(resume: dict) -> dict:
     """Post-process AI output to remove filler skills and enforce formatting."""
+    if isinstance(resume.get("summary"), str):
+        resume["summary"] = _trim_to_two_sentences(resume["summary"])
+
     skills = resume.get("skills", {})
     if isinstance(skills, dict):
         # Support both old 3-category schema (technical/tools/soft) and new 5-category schema
@@ -525,13 +549,31 @@ def _clean_resume(resume: dict) -> dict:
                     }:
                         continue
                     cleaned.append(s)
-                skills[category] = cleaned
+                limits = {
+                    "languages": 6,
+                    "frameworks": 6,
+                    "databases": 4,
+                    "tools": 6,
+                    "concepts": 5,
+                }
+                skills[category] = _dedupe_keep_order(cleaned)[:limits[category]]
         resume["skills"] = skills
 
     # Trim experience bullets to max 3 per job
     for exp in resume.get("experience", []):
         if isinstance(exp, dict) and isinstance(exp.get("bullets"), list):
             exp["bullets"] = exp["bullets"][:3]
+
+    # Keep projects compact and avoid repeated tech stacks
+    for proj in resume.get("projects", []):
+        if not isinstance(proj, dict):
+            continue
+        if isinstance(proj.get("tech_stack"), list):
+            proj["tech_stack"] = _dedupe_keep_order(proj["tech_stack"])[:6]
+        desc = proj.get("description")
+        if isinstance(desc, str):
+            lines = [line.strip() for line in desc.splitlines() if line.strip()]
+            proj["description"] = "\n".join(lines[:3])
 
     return resume
 
@@ -584,8 +626,8 @@ def rewrite_resume(
     if missing_keywords:
         top_kw = missing_keywords[:20]  # top 20 most important missing keywords
         keyword_injection = (
-            "MANDATORY KEYWORD CHECKLIST — these specific terms MUST appear in the final resume "
-            "(weave naturally into summary, bullets, and skills — do NOT list them as a dump):\n"
+            "MANDATORY KEYWORD CHECKLIST — these specific terms should be covered where they fit naturally in the final resume "
+            "(weave them into summary, bullets, and skills only when it reads cleanly — do NOT list them as a dump):\n"
             + ", ".join(top_kw)
         )
     else:

@@ -79,8 +79,7 @@ export default function ATSScore({
   improving = false,
   autoImproved = false,
 }: Props) {
-  // Show improve button whenever there are missing keywords and score < 95
-  const showImproveButton = score < 95 && missingKeywords.length > 0 && onImproveAts
+  const showImproveButton = missingKeywords.length > 0 && onImproveAts
 
   return (
     <div className="card p-5 space-y-5 animate-fade-in">
@@ -126,9 +125,11 @@ export default function ATSScore({
             : 'bg-amber-50 border-amber-100'
         }`}>
           <p className={`text-sm ${score >= 80 ? 'text-indigo-800' : 'text-amber-800'}`}>
-            {score >= 80
-              ? `${missingKeywords.length} keyword${missingKeywords.length > 1 ? 's' : ''} still missing — AI can push your score higher.`
-              : `Your ATS score is ${score}%. AI can rewrite your resume to weave in missing keywords.`}
+            {score >= 90
+              ? `${missingKeywords.length} keyword${missingKeywords.length > 1 ? 's' : ''} still missing. Optimize again to keep improving coverage.`
+              : score >= 80
+                ? `${missingKeywords.length} keyword${missingKeywords.length > 1 ? 's' : ''} still missing. Optimize once more to push past 90%.`
+                : `Your ATS score is ${score}%. Optimize to weave in missing keywords and move toward 90%+.`}
           </p>
           <button
             type="button"
@@ -139,12 +140,12 @@ export default function ATSScore({
             {improving ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Improving ATS score...
+                Optimizing resume...
               </>
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />
-                Boost ATS Score with AI
+                {score >= 90 ? 'Optimize Further' : 'Optimize Resume to 90%+'}
               </>
             )}
           </button>
@@ -171,7 +172,9 @@ export default function ATSScore({
         <div>
           <div className="flex items-center gap-1.5 mb-2">
             <XCircle className="w-3.5 h-3.5 text-red-400" />
-            <span className="text-xs font-semibold text-red-600 uppercase tracking-wide">Missing Keywords</span>
+            <span className="text-xs font-semibold text-red-600 uppercase tracking-wide">
+              Missing Keywords ({missingKeywords.length})
+            </span>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {missingKeywords.slice(0, 20).map((kw) => (

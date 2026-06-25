@@ -24,6 +24,7 @@ from services.ai_service import (
     suggest_job_search_params,
 )
 from services.ats_engine import compute_ats_score
+from services.quality_checks import assess_resume_quality
 from services.pdf_generator import generate_pdf
 from services.latex_generator import generate_latex
 
@@ -36,6 +37,8 @@ class AnalyzeResponse(BaseModel):
     matched_keywords: list[str]
     missing_keywords: list[str]
     total_keywords: int
+    ats_validation: dict | None = None
+    quality_report: dict | None = None
     cover_letter: dict
     application_email: dict
     job_analysis: dict
@@ -171,12 +174,13 @@ async def analyze(
         raise HTTPException(status_code=502, detail=f"AI service is temporarily unavailable. Error: {str(e)}")
 
     tailored_text = json.dumps(tailored_resume)
-    ats = compute_ats_score(tailored_text, job_description)
+    original_ats = compute_ats_score(tailored_text, job_description)
+    ats = original_ats
 
     # ── Step 2: Parallel AI calls — cover letter + email + optional ATS boost ────────
     auto_improved = False
     try:
-        needs_improve = ats.score < 88 and bool(ats.missing_keywords)
+        needs_improve = ats.score < 90 and bool(ats.missing_keywords)
 
         if needs_improve:
             with ThreadPoolExecutor(max_workers=3) as pool:
@@ -195,10 +199,15 @@ async def analyze(
                 )
                 cover_letter = cover_future.result()
                 application_email = email_future.result()
-                tailored_resume = improve_future.result()
-            tailored_text = json.dumps(tailored_resume)
-            ats = compute_ats_score(tailored_text, job_description)
-            auto_improved = True
+                improved_resume = improve_future.result()
+
+            improved_text = json.dumps(improved_resume)
+            improved_ats = compute_ats_score(improved_text, job_description)
+            if improved_ats.score >= ats.score:
+                tailored_resume = improved_resume
+                tailored_text = improved_text
+                ats = improved_ats
+                auto_improved = improved_ats.score > original_ats.score
         else:
             with ThreadPoolExecutor(max_workers=2) as pool:
                 cover_future = pool.submit(
@@ -217,6 +226,24 @@ async def analyze(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=502, detail=f"AI service is temporarily unavailable. Error: {str(e)}")
+
+    final_ats = ats
+    quality_report = assess_resume_quality(
+        tailored_resume,
+        job_description,
+        {
+            "score": original_ats.score,
+            "matched": len(original_ats.matched_keywords),
+            "total": original_ats.total_keywords,
+            "missing_count": len(original_ats.missing_keywords),
+        },
+        {
+            "score": final_ats.score,
+            "matched": len(final_ats.matched_keywords),
+            "total": final_ats.total_keywords,
+            "missing_count": len(final_ats.missing_keywords),
+        },
+    )
 
     # ── Post-analysis: increment count + auto-save history ──────────────────
     analyses_used = 0
@@ -239,6 +266,7 @@ async def analyze(
                 cover_letter=cover_letter,
                 application_email=application_email,
                 job_analysis=job_analysis,
+                quality_report=quality_report,
                 job_description=job_description,
             )
             db.add(entry)
@@ -255,6 +283,12 @@ async def analyze(
         cover_letter=cover_letter,
         application_email=application_email,
         job_analysis=job_analysis,
+        ats_validation={
+            "validation_status": "pass" if final_ats.score >= 80 else "needs_review",
+            "validation_summary": quality_report["ats_compatibility_report"],
+            "formatting_report": quality_report["formatting_report"],
+        },
+        quality_report=quality_report,
         auto_improved=auto_improved,
         model_used=model_id or "",
         analyses_used=analyses_used,

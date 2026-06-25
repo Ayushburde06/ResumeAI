@@ -33,6 +33,9 @@ try:
         if "application_email" not in columns:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE resume_history ADD COLUMN application_email TEXT;"))
+        if "quality_report" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE resume_history ADD COLUMN quality_report TEXT;"))
 except Exception as e:
     print(f"Migration error: {e}")
 
@@ -181,7 +184,6 @@ async def _stop_pdf_browser_server():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
-
 
 
 

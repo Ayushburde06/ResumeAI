@@ -1,3 +1,21 @@
+import React from 'react'
+import {
+  Brain,
+  BookOpen,
+  ClipboardCheck,
+  FileText,
+  Flag,
+  Mail,
+  Mic,
+  PenTool,
+  RefreshCw,
+  Search,
+  Settings,
+  Sparkles,
+  Upload,
+  CheckCircle2,
+  AlertTriangle,
+} from 'lucide-react'
 import type { AgentStep } from '../types'
 
 interface Props {
@@ -5,17 +23,24 @@ interface Props {
   isRunning: boolean
 }
 
-const STEP_META: Record<string, { label: string; icon: string }> = {
-  planning:       { label: 'Planning strategy',              icon: '🧠' },
-  rag_retrieval:  { label: 'Retrieving industry knowledge',  icon: '📚' },
-  jd_analysis:    { label: 'Analysing job requirements',     icon: '🔍' },
-  rewrite:        { label: 'Rewriting resume',               icon: '✍️'  },
-  critique:       { label: 'Self-critiquing output',         icon: '🔄' },
-  cover_letter:   { label: 'Generating cover letter',        icon: '🎯' },
-  email:          { label: 'Generating application email',   icon: '📧' },
-  interview_prep: { label: 'Preparing interview questions',  icon: '🎤' },
-  complete:       { label: 'Done!',                          icon: '✅' },
-  error:          { label: 'Error',                          icon: '❌' },
+const STEP_META: Record<string, { label: string; icon: React.ReactNode }> = {
+  parse_resume: { label: 'Parsing resume', icon: <Upload className="w-4.5 h-4.5 text-zinc-500" /> },
+  planning: { label: 'Planning strategy', icon: <Brain className="w-4.5 h-4.5 text-zinc-500" /> },
+  jd_analysis: { label: 'Understanding job description', icon: <Search className="w-4.5 h-4.5 text-zinc-500" /> },
+  gap_analysis: { label: 'Finding gaps', icon: <Flag className="w-4.5 h-4.5 text-zinc-500" /> },
+  rag_retrieval: { label: 'Retrieving ATS knowledge', icon: <BookOpen className="w-4.5 h-4.5 text-zinc-500" /> },
+  rewrite: { label: 'Optimizing resume', icon: <PenTool className="w-4.5 h-4.5 text-zinc-500" /> },
+  critique: { label: 'Self-reviewing draft', icon: <RefreshCw className="w-4.5 h-4.5 text-zinc-500" /> },
+  ats_validation: { label: 'Validating ATS compatibility', icon: <ClipboardCheck className="w-4.5 h-4.5 text-zinc-500" /> },
+  humanization_check: { label: 'Checking human tone', icon: <Sparkles className="w-4.5 h-4.5 text-zinc-500" /> },
+  grammar_check: { label: 'Running grammar review', icon: <CheckCircle2 className="w-4.5 h-4.5 text-zinc-500" /> },
+  reflection: { label: 'Reflection pass', icon: <Sparkles className="w-4.5 h-4.5 text-zinc-500" /> },
+  final_review: { label: 'Final review', icon: <ClipboardCheck className="w-4.5 h-4.5 text-zinc-500" /> },
+  cover_letter: { label: 'Generating cover letter', icon: <FileText className="w-4.5 h-4.5 text-zinc-500" /> },
+  email: { label: 'Generating application email', icon: <Mail className="w-4.5 h-4.5 text-zinc-500" /> },
+  interview_prep: { label: 'Preparing interview questions', icon: <Mic className="w-4.5 h-4.5 text-zinc-500" /> },
+  complete: { label: 'Complete', icon: <CheckCircle2 className="w-4.5 h-4.5 text-emerald-500" /> },
+  error: { label: 'Error', icon: <AlertTriangle className="w-4.5 h-4.5 text-red-500" /> },
 }
 
 function StepBadge({ status }: { status: AgentStep['status'] }) {
@@ -38,7 +63,7 @@ function StepDetail({ step }: { step: AgentStep }) {
     const hit = step.target_reached
     return (
       <span className="agent-step-detail">
-        ATS:{' '}
+        ATS{' '}
         <strong style={{ color: hit ? '#16a34a' : '#d97706' }}>
           {step.ats_score}%
         </strong>
@@ -49,19 +74,30 @@ function StepDetail({ step }: { step: AgentStep }) {
         )}
         {hit && (
           <span style={{ color: '#16a34a', marginLeft: 6, fontSize: 11, fontWeight: 700 }}>
-            ✓ TARGET
+            {' '}
+            TARGET
           </span>
         )}
       </span>
     )
   }
+
   if (step.step === 'planning' && step.status === 'done' && step.strategy) {
     return (
       <span className="agent-step-detail" style={{ fontStyle: 'italic' }}>
-        {step.strategy.slice(0, 70)}{step.strategy.length > 70 ? '…' : ''}
+        {step.strategy.slice(0, 70)}{step.strategy.length > 70 ? '...' : ''}
       </span>
     )
   }
+
+  if (step.step === 'gap_analysis' && step.status === 'done') {
+    return (
+      <span className="agent-step-detail">
+        {step.missing_count ?? 0} keyword gaps found
+      </span>
+    )
+  }
+
   if (step.step === 'rag_retrieval' && step.status === 'done') {
     return (
       <span className="agent-step-detail">
@@ -69,6 +105,47 @@ function StepDetail({ step }: { step: AgentStep }) {
       </span>
     )
   }
+
+  if (step.step === 'ats_validation' && step.status === 'done') {
+    return (
+      <span className="agent-step-detail">
+        {step.validation_summary ?? step.validation_status ?? 'Validation complete'}
+      </span>
+    )
+  }
+
+  if (step.step === 'humanization_check' && step.status === 'done') {
+    return (
+      <span className="agent-step-detail">
+        Tone score {step.humanization_score ?? 0}/100
+      </span>
+    )
+  }
+
+  if (step.step === 'grammar_check' && step.status === 'done') {
+    return (
+      <span className="agent-step-detail">
+        Grammar score {step.grammar_score ?? 0}/100
+      </span>
+    )
+  }
+
+  if (step.step === 'reflection' && step.status === 'done') {
+    return (
+      <span className="agent-step-detail">
+        {step.reflection_summary ?? step.message ?? 'Reflection complete'}
+      </span>
+    )
+  }
+
+  if (step.step === 'final_review' && step.status === 'done') {
+    return (
+      <span className="agent-step-detail">
+        Readability {step.recruiter_readability_score ?? 0}/100
+      </span>
+    )
+  }
+
   if (step.step === 'critique' && step.status === 'done' && step.priority_fixes?.length) {
     return (
       <span className="agent-step-detail">
@@ -76,11 +153,11 @@ function StepDetail({ step }: { step: AgentStep }) {
       </span>
     )
   }
+
   return null
 }
 
 export default function AgentProgressPanel({ steps, isRunning }: Props) {
-  // Deduplicate: keep latest event per (step, iteration) key
   const seen = new Map<string, AgentStep>()
   for (const s of steps) {
     const key = s.step + (s.iteration ?? '')
@@ -92,7 +169,7 @@ export default function AgentProgressPanel({ steps, isRunning }: Props) {
     <div className="agent-panel">
       <div className="agent-panel-header">
         <div className="agent-panel-title">
-          <span className="agent-brain-icon">🤖</span>
+          <Brain className="w-4.5 h-4.5 text-zinc-600" />
           <span>Agent Progress</span>
           {isRunning && <span className="agent-live-dot" />}
         </div>
@@ -103,9 +180,8 @@ export default function AgentProgressPanel({ steps, isRunning }: Props) {
 
       <div className="agent-steps-list">
         {dedupedSteps.map((s, idx) => {
-          const meta = STEP_META[s.step] ?? { label: s.step, icon: '⚙️' }
-          const labelSuffix =
-            s.step === 'rewrite' && s.iteration ? ` (attempt ${s.iteration})` : ''
+          const meta = STEP_META[s.step] ?? { label: s.step, icon: <Settings className="w-4.5 h-4.5 text-zinc-400" /> }
+          const labelSuffix = s.step === 'rewrite' && s.iteration ? ` (attempt ${s.iteration})` : ''
 
           return (
             <div
@@ -126,9 +202,11 @@ export default function AgentProgressPanel({ steps, isRunning }: Props) {
 
         {isRunning && dedupedSteps.length === 0 && (
           <div className="agent-step-row running">
-            <span className="agent-step-icon">🧠</span>
+            <span className="agent-step-icon">
+              <Brain className="w-4.5 h-4.5 text-zinc-500 animate-pulse" />
+            </span>
             <div className="agent-step-body">
-              <span className="agent-step-label">Starting agent…</span>
+              <span className="agent-step-label">Starting agent...</span>
             </div>
             <StepBadge status="running" />
           </div>

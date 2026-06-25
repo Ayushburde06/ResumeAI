@@ -14,5 +14,6 @@ class ResumeHistory(Base):
     cover_letter = Column(JSON, nullable=True)
     application_email = Column(JSON, nullable=True)
     job_analysis = Column(JSON, nullable=True)
+    quality_report = Column(JSON, nullable=True)
     job_description = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

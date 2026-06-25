@@ -125,6 +125,29 @@ export interface AnalyzeResponse {
   matched_keywords: string[]
   missing_keywords: string[]
   total_keywords: number
+  ats_validation?: {
+    formatting_report?: string
+    validation_status?: string
+    validation_summary?: string
+  }
+  reflection?: string
+  quality_report?: {
+    ats_compatibility_report?: string
+    formatting_report?: string
+    grammar_report?: string
+    humanization_score?: number
+    recruiter_readability_score?: number
+    changes_made?: string[]
+    before_after_comparison?: {
+      ats_before?: number
+      ats_after?: number
+      keyword_coverage_before?: number
+      keyword_coverage_after?: number
+      missing_before?: number
+      missing_after?: number
+    }
+    confidence_report?: string
+  }
   cover_letter: CoverLetter
   application_email: ApplicationEmail
   job_analysis: JobAnalysis
@@ -190,6 +213,7 @@ export interface HistoryEntry {
   cover_letter: CoverLetter | null
   application_email: ApplicationEmail | null
   job_analysis: JobAnalysis | null
+  quality_report?: AnalyzeResponse['quality_report'] | null
   job_description: string | null
   created_at: string
 }
@@ -238,10 +262,27 @@ export interface AgentStep {
   job_title?: string
   message?: string
   chunks_retrieved?: boolean
+  validation_status?: string
+  validation_summary?: string
+  formatting_report?: string
+  reflection_summary?: string
+  humanization_score?: number
+  grammar_score?: number
+  recruiter_readability_score?: number
+  confidence_report?: string
+  changes_made?: string[]
+  before_after_comparison?: {
+    ats_before?: number
+    ats_after?: number
+    keyword_coverage_before?: number
+    keyword_coverage_after?: number
+    missing_before?: number
+    missing_after?: number
+  }
+  missing_keywords?: string[]
 }
 
 export interface AgentAnalyzeResult extends AnalyzeResponse {
   interview_prep?: InterviewPrep
   agent_trace?: AgentTrace
 }
-

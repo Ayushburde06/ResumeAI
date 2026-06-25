@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, ReactNode } from 'react'
 import { ChevronDown, Check, Cpu, Zap, Star } from 'lucide-react'
 import type { ModelInfo } from '../types'
 
@@ -8,10 +8,10 @@ interface Props {
   onChange: (id: string) => void
 }
 
-const MODEL_META: Record<string, { badge: string; color: string; icon: React.ReactNode }> = {
+const MODEL_META: Record<string, { badge: string; color: string; icon: ReactNode }> = {
   glm: {
     badge: 'Recommended',
-    color: 'text-violet-700 bg-violet-50 border-violet-200',
+    color: 'text-zinc-800 bg-zinc-100 border-zinc-200/80',
     icon: <Star className="w-3 h-3" />,
   },
   qwen: {
@@ -75,7 +75,7 @@ export default function ModelSelector({ models, selectedModel, onChange }: Props
 
       {/* Dropdown */}
       {open && (
-        <div className="absolute z-50 mt-1.5 w-full min-w-[260px] bg-white border border-gray-200 rounded-2xl shadow-xl overflow-hidden">
+        <div className="absolute z-50 mt-1.5 w-full min-w-[260px] bg-white border border-gray-200 rounded-2xl shadow-md overflow-hidden">
           <div className="px-3 py-2 border-b border-gray-100">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">AI Model</p>
           </div>

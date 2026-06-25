@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { Loader2, ArrowLeft } from 'lucide-react'
-import { getHistoryEntry } from '../lib/api'
+import { getHistoryEntry, analyzeResume } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
-import type { HistoryEntry, ResultsState } from '../types'
-import Results from './Results'
+import type { HistoryEntry, AnalyzeResponse } from '../types'
+import UnifiedWorkspace from '../components/UnifiedWorkspace'
 
 export default function HistoryResults() {
   const { id } = useParams<{ id: string }>()
@@ -15,8 +15,12 @@ export default function HistoryResults() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!user) { navigate('/login'); return }
+    if (!user) {
+      navigate('/login')
+      return
+    }
     if (!id) return
+
     getHistoryEntry(Number(id))
       .then(setEntry)
       .catch(() => setError('Could not load this resume. It may have been deleted.'))
@@ -25,17 +29,17 @@ export default function HistoryResults() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center pt-14">
-        <Loader2 className="w-6 h-6 text-violet-500 animate-spin" />
+      <div className="min-h-screen bg-[#F8F9FA] flex items-center justify-center pt-14">
+        <Loader2 className="w-6 h-6 text-[#1a1f2e] animate-spin" />
       </div>
     )
   }
 
   if (error || !entry) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center pt-14 gap-4">
-        <p className="text-gray-500">{error ?? 'Resume not found.'}</p>
-        <Link to="/dashboard" className="flex items-center gap-2 text-violet-600 hover:text-violet-500 text-sm transition">
+      <div className="min-h-screen bg-[#F8F9FA] flex flex-col items-center justify-center pt-14 gap-4">
+        <p className="text-zinc-500">{error ?? 'Resume not found.'}</p>
+        <Link to="/dashboard" className="flex items-center gap-2 text-zinc-600 hover:text-zinc-950 text-sm font-medium transition">
           <ArrowLeft className="w-4 h-4" />
           Back to dashboard
         </Link>
@@ -43,50 +47,55 @@ export default function HistoryResults() {
     )
   }
 
-  const injectedState: ResultsState = {
-    result: {
-      tailored_resume: entry.tailored_resume,
-      ats_score: entry.ats_score ?? 0,
-      matched_keywords: [],
-      missing_keywords: [],
-      total_keywords: 0,
-      cover_letter: entry.cover_letter ?? { subject_line: '', body: '' },
-      application_email: entry.application_email ?? { subject_line: '', body: '' },
-      job_analysis: entry.job_analysis ?? {
-        job_title: entry.job_title,
-        company_type: '',
-        seniority: '',
-        required_skills: [],
-        preferred_skills: [],
-        key_responsibilities: [],
-        industry_keywords: [],
-        tone: '',
-        must_have: [],
-      },
+  const initialResult: AnalyzeResponse = {
+    tailored_resume: entry.tailored_resume,
+    ats_score: entry.ats_score ?? 0,
+    matched_keywords: [],
+    missing_keywords: [],
+    total_keywords: 0,
+    ats_validation: entry.quality_report
+      ? {
+          formatting_report: entry.quality_report.formatting_report ?? '',
+          validation_status: 'pass',
+          validation_summary: entry.quality_report.ats_compatibility_report ?? '',
+        }
+      : undefined,
+    quality_report: entry.quality_report ?? undefined,
+    cover_letter: entry.cover_letter ?? { subject_line: '', body: '' },
+    application_email: entry.application_email ?? { subject_line: '', body: '' },
+    job_analysis: entry.job_analysis ?? {
+      job_title: entry.job_title,
+      company_type: '',
+      seniority: '',
+      required_skills: [],
+      preferred_skills: [],
+      key_responsibilities: [],
+      industry_keywords: [],
+      tone: '',
+      must_have: [],
     },
-    job_description: entry.job_description ?? '',
+  }
+
+  const handleAnalyze = async (file: File, jd: string) => {
+    return analyzeResume(file, jd)
   }
 
   return (
-    <div>
-      {/* Breadcrumb banner */}
-      <div className="fixed top-14 left-0 right-0 z-40 bg-white/90 backdrop-blur border-b border-gray-200 px-4 py-2 flex items-center gap-3">
-        <Link to="/dashboard" className="flex items-center gap-1.5 text-gray-500 hover:text-gray-900 text-sm transition shrink-0">
+    <div className="h-[calc(100vh-3.5rem)] overflow-hidden flex flex-col bg-[#F8F9FA]">
+      <div className="bg-white/85 backdrop-blur-xl border-b border-white/70 px-6 py-2.5 flex items-center gap-3 shrink-0">
+        <Link to="/dashboard" className="flex items-center gap-1.5 text-zinc-500 hover:text-zinc-900 text-sm transition shrink-0">
           <ArrowLeft className="w-4 h-4" />
           Dashboard
         </Link>
-        <span className="text-gray-300 shrink-0">›</span>
-        <span className="text-gray-700 text-sm truncate min-w-0 flex-1">{entry.job_title || 'Saved Resume'}</span>
-        {entry.ats_score !== null && (
-          <span className="ml-auto text-xs text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full shrink-0">
-            {entry.ats_score}% ATS
-          </span>
-        )}
+        <span className="text-zinc-300 shrink-0">›</span>
+        <span className="text-zinc-900 text-sm font-medium truncate min-w-0 flex-1">{entry.job_title || 'Saved Resume'}</span>
       </div>
 
-      <div className="pt-10">
-        <Results injectedState={injectedState} />
-      </div>
+      <UnifiedWorkspace
+        initialResult={initialResult}
+        initialJd={entry.job_description ?? ''}
+        onAnalyze={handleAnalyze}
+      />
     </div>
   )
 }

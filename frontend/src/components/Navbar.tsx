@@ -1,90 +1,170 @@
-import { Link, useNavigate } from 'react-router-dom'
-import { Sparkles, LayoutDashboard, LogOut, LogIn, UserPlus, Zap } from 'lucide-react'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
+import { Sparkles, LayoutDashboard, LogOut, Zap, Menu, ArrowRight } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { Button } from '@/components/ui/button'
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 
 export default function Navbar() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+
+  if (location.pathname === '/' && !user) {
+    return null
+  }
 
   function handleLogout() {
     logout()
     navigate('/')
   }
 
+  const isDashboardActive = location.pathname === '/dashboard'
+  const isAgentActive = location.pathname === '/agent'
+
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-lg border-b border-gray-100/80 shadow-sm shadow-gray-100/50">
-      <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-        {/* Logo */}
-        <Link to="/" className="flex items-center gap-2 group">
-          <div className="w-7 h-7 bg-gradient-to-br from-violet-500 to-indigo-600 rounded-lg flex items-center justify-center shadow-sm shadow-violet-200 transition-shadow group-hover:shadow-md group-hover:shadow-violet-200">
-            <Sparkles className="w-3.5 h-3.5 text-white transition-transform duration-300 group-hover:rotate-12" />
+    <nav className="sticky top-0 left-0 right-0 z-50 border-b border-white/70 bg-white/85 backdrop-blur-xl">
+      <div className="page-shell h-16 flex items-center justify-between">
+        <Link to="/" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
+          <div className="w-9 h-9 rounded-2xl bg-brand flex items-center justify-center shadow-[0_12px_24px_rgba(26,31,46,0.16)]">
+            <Sparkles className="w-4 h-4 text-white" />
           </div>
-          <span className="text-gray-900 font-semibold text-sm tracking-tight">ResumeAI</span>
+          <div className="leading-tight">
+            <span className="block text-slate-ink text-lg tracking-tight font-semibold">ResumeAI</span>
+            <span className="block text-[11px] uppercase tracking-[0.22em] text-zinc-500">Tailoring workspace</span>
+          </div>
         </Link>
 
-        {/* Right side */}
-        <div className="flex items-center gap-1">
+        <div className="hidden md:flex items-center gap-3">
           {user ? (
             <>
-              <Link
-                to="/dashboard"
-                className="flex items-center gap-1.5 text-gray-500 hover:text-gray-900 text-sm px-3 py-1.5 rounded-lg hover:bg-gray-100 transition"
-              >
-                <LayoutDashboard className="w-4 h-4" />
-                <span className="hidden sm:inline">Dashboard</span>
+              <Link to="/dashboard">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={`gap-2 rounded-2xl px-4 ${
+                    isDashboardActive ? 'text-zinc-950 bg-zinc-50 font-semibold' : 'text-zinc-600 hover:text-zinc-950'
+                  }`}
+                >
+                  <LayoutDashboard className="w-4 h-4 text-zinc-500" />
+                  Dashboard
+                </Button>
               </Link>
-              <Link
-                to="/agent"
-                className="flex items-center gap-1.5 text-gray-500 hover:text-gray-900 text-sm px-3 py-1.5 rounded-lg hover:bg-gray-100 transition"
-              >
-                <Sparkles className="w-4 h-4 text-violet-500 animate-pulse" />
-                <span className="hidden sm:inline">Agent Mode</span>
+              <Link to="/agent">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={`gap-2 rounded-2xl px-4 ${
+                    isAgentActive ? 'text-zinc-950 bg-zinc-50 font-semibold' : 'text-zinc-600 hover:text-zinc-950'
+                  }`}
+                >
+                  <Sparkles className={`w-4 h-4 ${isAgentActive ? 'text-zinc-950' : 'text-zinc-400'}`} />
+                  Agent Mode
+                </Button>
               </Link>
-              <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
-                {/* Usage pill */}
+              <div className="flex items-center gap-3 pl-3 border-l border-zinc-200">
                 {!user.is_premium && (
-                  <Link
-                    to="/"
-                    className="hidden sm:flex items-center gap-1 text-xs px-2 py-1 rounded-full border border-gray-300 text-gray-500 hover:border-violet-500 hover:text-violet-600 transition"
-                    title="Free tailorings remaining"
-                  >
-                    <Zap className="w-3 h-3" />
-                    {Math.max(0, (user.analyses_limit ?? 3) - (user.analyses_used ?? 0))}/{user.analyses_limit ?? 3} free
-                  </Link>
+                  <div className="flex items-center gap-1.5 text-xs text-zinc-600 font-medium bg-zinc-50 px-3 py-1.5 rounded-full border border-zinc-200">
+                    <Zap className="w-3 h-3 text-brand fill-brand" />
+                    {Math.max(0, (user.analyses_limit ?? 3) - (user.analyses_used ?? 0))} left
+                  </div>
                 )}
-                <div className="w-7 h-7 rounded-full bg-violet-600 flex items-center justify-center text-white text-xs font-bold">
+                <div className="w-8 h-8 rounded-2xl bg-brand flex items-center justify-center text-white text-xs font-semibold shadow-[0_10px_22px_rgba(26,31,46,0.16)]">
                   {user.name.charAt(0).toUpperCase()}
                 </div>
-                <span className="text-gray-700 text-sm hidden sm:inline max-w-[120px] truncate">
-                  {user.name}
-                </span>
-                <button
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-2xl text-zinc-400 hover:text-red-600 hover:bg-red-50"
                   onClick={handleLogout}
-                  className="flex items-center gap-1 text-gray-400 hover:text-red-500 text-sm px-2 py-1.5 rounded-lg hover:bg-gray-100 transition"
-                  title="Sign out"
                 >
                   <LogOut className="w-4 h-4" />
-                </button>
+                </Button>
               </div>
             </>
           ) : (
             <>
-              <Link
-                to="/login"
-                className="flex items-center gap-1.5 text-gray-500 hover:text-gray-900 text-sm px-3 py-1.5 rounded-lg hover:bg-gray-100 transition"
-              >
-                <LogIn className="w-4 h-4" />
-                Sign in
+              <Link to="/login">
+                <Button variant="ghost" size="sm" className="rounded-2xl px-4 text-zinc-600 hover:text-zinc-950 hover:bg-zinc-50">
+                  Sign in
+                </Button>
               </Link>
-              <Link
-                to="/signup"
-                className="flex items-center gap-1.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-sm px-3 py-1.5 rounded-lg transition-all shadow-sm shadow-violet-200 hover:shadow-md hover:shadow-violet-200 hover:-translate-y-0.5"
-              >
-                <UserPlus className="w-4 h-4" />
-                Sign up
+              <Link to="/signup">
+                <Button size="sm" className="bg-brand hover:bg-brand-hover text-white rounded-2xl px-4 shadow-[0_14px_28px_rgba(26,31,46,0.14)]">
+                  Get started
+                  <ArrowRight className="w-4 h-4 ml-1" />
+                </Button>
               </Link>
             </>
           )}
+        </div>
+
+        <div className="md:hidden flex items-center gap-2">
+          {user && (
+            <div className="w-8 h-8 rounded-2xl bg-brand flex items-center justify-center text-white text-xs font-semibold shadow-[0_10px_22px_rgba(26,31,46,0.16)]">
+              {user.name.charAt(0).toUpperCase()}
+            </div>
+          )}
+          <Sheet>
+            <SheetTrigger className="inline-flex items-center justify-center p-2 rounded-xl text-zinc-700 hover:bg-white/80 border border-zinc-200/70 transition-colors">
+              <Menu className="w-4.5 h-4.5" />
+            </SheetTrigger>
+            <SheetContent side="right" className="w-[280px] sm:w-[320px] bg-white p-6">
+              <div className="flex flex-col gap-6 mt-6">
+                <Link to="/" className="flex items-center gap-2 text-lg tracking-tight font-semibold">
+                  <Sparkles className="w-4 h-4 text-brand" />
+                  ResumeAI
+                </Link>
+
+                {user ? (
+                  <>
+                    <Link to="/dashboard">
+                      <Button variant="ghost" className="w-full justify-start gap-2.5 text-zinc-700 rounded-2xl">
+                        <LayoutDashboard className="w-4.5 h-4.5 text-zinc-500" />
+                        Dashboard
+                      </Button>
+                    </Link>
+                    <Link to="/agent">
+                      <Button variant="ghost" className="w-full justify-start gap-2.5 text-zinc-700 rounded-2xl">
+                        <Sparkles className="w-4.5 h-4.5 text-zinc-500" />
+                        Agent Mode
+                      </Button>
+                    </Link>
+                    <div className="h-px bg-zinc-100 my-1" />
+                    {!user.is_premium && (
+                      <div className="flex items-center justify-between text-xs text-zinc-500 bg-zinc-50 px-3 py-2 rounded-2xl border border-zinc-200">
+                        <span className="flex items-center gap-1.5">
+                          <Zap className="w-3.5 h-3.5 text-brand fill-brand" />
+                          Remaining analyses
+                        </span>
+                        <span className="font-semibold">{Math.max(0, (user.analyses_limit ?? 3) - (user.analyses_used ?? 0))} left</span>
+                      </div>
+                    )}
+                    <Button
+                      variant="outline"
+                      className="w-full justify-center gap-2 text-red-600 border-red-100 hover:bg-red-50 hover:text-red-700 rounded-2xl"
+                      onClick={handleLogout}
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Sign out
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Link to="/login" className="w-full">
+                      <Button variant="outline" className="w-full justify-center rounded-2xl">
+                        Sign in
+                      </Button>
+                    </Link>
+                    <Link to="/signup" className="w-full">
+                      <Button className="w-full bg-brand hover:bg-brand-hover text-white justify-center rounded-2xl">
+                        Get started
+                      </Button>
+                    </Link>
+                  </>
+                )}
+              </div>
+            </SheetContent>
+          </Sheet>
         </div>
       </div>
     </nav>

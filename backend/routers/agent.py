@@ -5,7 +5,7 @@ POST /api/agent-analyze  →  streams Server-Sent Events.
 import asyncio
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -24,6 +24,7 @@ router = APIRouter()
 
 
 async def _sse_generator(
+    request: Request,
     resume_text: str,
     jd_text: str,
     model_id: str | None,
@@ -56,6 +57,9 @@ async def _sse_generator(
 
     try:
         while True:
+            if await request.is_disconnected():
+                break
+
             event_str = await queue.get()
             if event_str is None:
                 break
@@ -89,6 +93,7 @@ async def _sse_generator(
                 cover_letter=final_result.get("cover_letter", {}),
                 application_email=final_result.get("application_email", {}),
                 job_analysis=ja,
+                quality_report=final_result.get("quality_report", {}),
                 job_description=jd_text,
             )
             db.add(entry)
@@ -99,6 +104,7 @@ async def _sse_generator(
 
 @router.post("/agent-analyze")
 async def agent_analyze(
+    request: Request,
     resume_file: UploadFile = File(..., description="Resume file — PDF or DOCX"),
     job_description: str = Form(..., description="Full text of the job description"),
     model: str = Form(default="", description="Model ID (e.g. glm, qwen)"),
@@ -158,7 +164,7 @@ async def agent_analyze(
 
     # ── Stream SSE response ──────────────────────────────────────────────────
     return StreamingResponse(
-        _sse_generator(resume_text, job_description, model_id, db, current_user, stats),
+        _sse_generator(request, resume_text, job_description, model_id, db, current_user, stats),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

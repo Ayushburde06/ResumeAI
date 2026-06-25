@@ -1,29 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#4f46e5"/>
-      <stop offset="100%" stop-color="#7c3aed"/>
-    </linearGradient>
-  </defs>
+  <!-- Background circle matching the app's logo shape -->
+  <circle cx="32" cy="32" r="32" fill="#1a1f2e"/>
 
-  <!-- Background rounded square -->
-  <rect width="64" height="64" rx="14" ry="14" fill="url(#bg)"/>
-
-  <!-- Letter R -->
-  <text
-    x="10"
-    y="47"
-    font-family="'Arial Black', 'Helvetica Neue', Arial, sans-serif"
-    font-size="42"
-    font-weight="900"
-    fill="white"
-    letter-spacing="-2"
-  >R</text>
-
-  <!-- Sparkle star top-right -->
-  <g transform="translate(44, 10)">
-    <!-- 4-point star -->
-    <path d="M8,0 L9.5,6.5 L16,8 L9.5,9.5 L8,16 L6.5,9.5 L0,8 L6.5,6.5 Z"
-          fill="#facc15" opacity="0.95"/>
+  <!-- Sparkles icon in white -->
+  <g transform="translate(14, 14) scale(1.5)" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275Z"/>
+    <path d="m5 3 1 2.5L8.5 6 6 7 5 9.5 4 7 1.5 6 4 5Z"/>
+    <path d="m19 17 1 2.5 2.5.5-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1Z"/>
   </g>
 </svg>

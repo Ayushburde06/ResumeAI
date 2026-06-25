@@ -19,6 +19,7 @@ class SaveHistoryRequest(BaseModel):
     cover_letter: Optional[dict] = None
     application_email: Optional[dict] = None
     job_analysis: Optional[dict] = None
+    quality_report: Optional[dict] = None
     job_description: Optional[str] = None
     ats_score: Optional[int] = None
 
@@ -43,6 +44,7 @@ def save_history(
         cover_letter=body.cover_letter,
         application_email=body.application_email,
         job_analysis=body.job_analysis,
+        quality_report=body.quality_report,
         job_description=body.job_description,
     )
     db.add(entry)
@@ -99,6 +101,7 @@ def get_history(
         "cover_letter": entry.cover_letter,
         "application_email": entry.application_email,
         "job_analysis": entry.job_analysis,
+        "quality_report": entry.quality_report,
         "job_description": entry.job_description,
         "created_at": entry.created_at.isoformat() if entry.created_at else None,
     }

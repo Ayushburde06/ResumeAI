@@ -131,12 +131,47 @@ function normalizeJobAnalysis(value: unknown): JobAnalysis {
 
 function normalizeAnalyzeResponse(value: unknown): AnalyzeResponse {
   const response = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
+  const atsValidation = typeof response.ats_validation === 'object' && response.ats_validation !== null
+    ? response.ats_validation as Record<string, unknown>
+    : null
+  const qualityReport = typeof response.quality_report === 'object' && response.quality_report !== null
+    ? response.quality_report as Record<string, unknown>
+    : null
   return {
     tailored_resume: normalizeTailoredResume(response.tailored_resume),
     ats_score: typeof response.ats_score === 'number' ? response.ats_score : Number(response.ats_score ?? 0) || 0,
     matched_keywords: toStringArray(response.matched_keywords),
     missing_keywords: toStringArray(response.missing_keywords),
     total_keywords: typeof response.total_keywords === 'number' ? response.total_keywords : Number(response.total_keywords ?? 0) || 0,
+    ats_validation: atsValidation
+      ? {
+          formatting_report: toText(atsValidation.formatting_report),
+          validation_status: toText(atsValidation.validation_status),
+          validation_summary: toText(atsValidation.validation_summary),
+        }
+      : undefined,
+    reflection: toText((response.reflection as unknown) ?? ''),
+    quality_report: qualityReport
+      ? {
+          ats_compatibility_report: toText(qualityReport.ats_compatibility_report),
+          formatting_report: toText(qualityReport.formatting_report),
+          grammar_report: toText(qualityReport.grammar_report),
+          humanization_score: typeof qualityReport.humanization_score === 'number' ? qualityReport.humanization_score : Number(qualityReport.humanization_score ?? 0) || 0,
+          recruiter_readability_score: typeof qualityReport.recruiter_readability_score === 'number' ? qualityReport.recruiter_readability_score : Number(qualityReport.recruiter_readability_score ?? 0) || 0,
+          changes_made: toStringArray(qualityReport.changes_made),
+          before_after_comparison: typeof qualityReport.before_after_comparison === 'object' && qualityReport.before_after_comparison !== null
+            ? {
+                ats_before: Number((qualityReport.before_after_comparison as { ats_before?: unknown }).ats_before ?? 0) || 0,
+                ats_after: Number((qualityReport.before_after_comparison as { ats_after?: unknown }).ats_after ?? 0) || 0,
+                keyword_coverage_before: Number((qualityReport.before_after_comparison as { keyword_coverage_before?: unknown }).keyword_coverage_before ?? 0) || 0,
+                keyword_coverage_after: Number((qualityReport.before_after_comparison as { keyword_coverage_after?: unknown }).keyword_coverage_after ?? 0) || 0,
+                missing_before: Number((qualityReport.before_after_comparison as { missing_before?: unknown }).missing_before ?? 0) || 0,
+                missing_after: Number((qualityReport.before_after_comparison as { missing_after?: unknown }).missing_after ?? 0) || 0,
+              }
+            : undefined,
+          confidence_report: toText(qualityReport.confidence_report),
+        }
+      : undefined,
     cover_letter: {
       subject_line: toText((response.cover_letter as { subject_line?: unknown } | undefined)?.subject_line),
       body: toText((response.cover_letter as { body?: unknown } | undefined)?.body),
@@ -398,6 +433,33 @@ export async function getHistoryEntry(id: number): Promise<HistoryEntry> {
         }
       : null,
     job_analysis: data.job_analysis ? normalizeJobAnalysis(data.job_analysis) : null,
+    quality_report: data.quality_report
+      ? {
+          ats_compatibility_report: toText((data.quality_report as { ats_compatibility_report?: unknown }).ats_compatibility_report),
+          formatting_report: toText((data.quality_report as { formatting_report?: unknown }).formatting_report),
+          grammar_report: toText((data.quality_report as { grammar_report?: unknown }).grammar_report),
+          humanization_score: typeof (data.quality_report as { humanization_score?: unknown }).humanization_score === 'number'
+            ? (data.quality_report as { humanization_score?: number }).humanization_score
+            : undefined,
+          recruiter_readability_score: typeof (data.quality_report as { recruiter_readability_score?: unknown }).recruiter_readability_score === 'number'
+            ? (data.quality_report as { recruiter_readability_score?: number }).recruiter_readability_score
+            : undefined,
+          changes_made: Array.isArray((data.quality_report as { changes_made?: unknown }).changes_made)
+            ? toStringArray((data.quality_report as { changes_made?: unknown }).changes_made)
+            : undefined,
+          before_after_comparison: typeof (data.quality_report as { before_after_comparison?: unknown }).before_after_comparison === 'object' && (data.quality_report as { before_after_comparison?: unknown }).before_after_comparison !== null
+            ? {
+                ats_before: Number(((data.quality_report as { before_after_comparison?: { ats_before?: unknown } }).before_after_comparison?.ats_before ?? 0) || 0),
+                ats_after: Number(((data.quality_report as { before_after_comparison?: { ats_after?: unknown } }).before_after_comparison?.ats_after ?? 0) || 0),
+                keyword_coverage_before: Number(((data.quality_report as { before_after_comparison?: { keyword_coverage_before?: unknown } }).before_after_comparison?.keyword_coverage_before ?? 0) || 0),
+                keyword_coverage_after: Number(((data.quality_report as { before_after_comparison?: { keyword_coverage_after?: unknown } }).before_after_comparison?.keyword_coverage_after ?? 0) || 0),
+                missing_before: Number(((data.quality_report as { before_after_comparison?: { missing_before?: unknown } }).before_after_comparison?.missing_before ?? 0) || 0),
+                missing_after: Number(((data.quality_report as { before_after_comparison?: { missing_after?: unknown } }).before_after_comparison?.missing_after ?? 0) || 0),
+              }
+            : undefined,
+          confidence_report: toText((data.quality_report as { confidence_report?: unknown }).confidence_report),
+        }
+      : undefined,
     job_description: data.job_description ?? null,
   }
 }

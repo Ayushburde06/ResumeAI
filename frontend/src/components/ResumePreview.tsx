@@ -69,6 +69,7 @@ const TEMPLATES: { id: TemplateId; name: string; description: string; preview: R
 
 interface Props {
   resume: TailoredResume
+  atsScore?: number
   onResumeChange: (resume: TailoredResume) => void
   onEditComplete?: () => void
   rescoring?: boolean
@@ -646,7 +647,13 @@ function SidebarResume({ resume }: { resume: TailoredResume }) {
   )
 }
 
-export default function ResumePreview({ resume, onResumeChange, onEditComplete, rescoring }: Props) {
+const getScore = (n: number) => ({
+  color: n >= 80 ? '#10b981' : n >= 60 ? '#f59e0b' : '#ef4444',
+  label: n >= 80 ? 'Strong match' : n >= 60 ? 'Good match' : 'Needs work',
+  bg: n >= 80 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : n >= 60 ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-red-50 text-red-700 border-red-100'
+})
+
+export default function ResumePreview({ resume, atsScore, onResumeChange, onEditComplete, rescoring }: Props) {
   const [template, setTemplate] = useState<TemplateId>('modern')
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
@@ -707,13 +714,21 @@ export default function ResumePreview({ resume, onResumeChange, onEditComplete, 
   }
 
   const templateLabel = TEMPLATES.find((t) => t.id === template)?.name ?? 'Professional'
+  const scoreMeta = atsScore !== undefined ? getScore(atsScore) : null
 
   return (
-    <div className="card p-5 space-y-5 animate-slide-up">
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+    <div className="bg-white rounded-lg border border-zinc-200 p-6 space-y-5 animate-slide-up flex flex-col flex-1 min-h-0">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-zinc-100 pb-4 shrink-0">
         <div>
-          <h3 className="font-semibold text-gray-900">Tailored Resume</h3>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <div className="flex items-center gap-3">
+            <h3 className="font-semibold text-zinc-900 text-base">Tailored Resume</h3>
+            {scoreMeta && (
+              <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${scoreMeta.bg} border`} style={{ color: scoreMeta.color, borderColor: `${scoreMeta.color}20` }}>
+                {atsScore}% ATS
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-zinc-500 mt-1">
             {editing ? 'Edit any section, then click Done to update your preview' : 'AI-optimised for this role'}
           </p>
         </div>
@@ -761,14 +776,14 @@ export default function ResumePreview({ resume, onResumeChange, onEditComplete, 
             <button
               key={t.id}
               onClick={() => setTemplate(t.id)}
-              className={`rounded-xl border-2 p-1.5 sm:p-2.5 text-left transition-all focus:outline-none ${
+              className={`rounded-lg border p-1.5 sm:p-2.5 text-left transition-all focus:outline-none ${
                 template === t.id
-                  ? 'border-indigo-500 bg-indigo-50/50 shadow-sm'
-                  : 'border-gray-100 hover:border-gray-300 bg-white'
+                  ? 'border-brand bg-brand-50 shadow-sm'
+                  : 'border-zinc-200 hover:border-zinc-300 bg-white'
               }`}
             >
               {t.preview}
-              <p className={`mt-2 text-xs font-semibold ${template === t.id ? 'text-indigo-700' : 'text-gray-700'}`}>
+              <p className={`mt-2 text-xs font-semibold ${template === t.id ? 'text-brand' : 'text-zinc-700'}`}>
                 {t.name}
               </p>
               <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{t.description}</p>
@@ -785,11 +800,11 @@ export default function ResumePreview({ resume, onResumeChange, onEditComplete, 
         <div>
           <div
             ref={containerRef}
-            className="rounded-xl border border-neutral-200 bg-neutral-100 p-4 shadow-inner relative overflow-hidden"
+            className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 relative overflow-hidden"
             style={{ height: `${842 * scale + 32}px` }}
           >
             <div
-              className="bg-white shadow-xl border border-neutral-300 rounded-sm flex flex-col justify-start relative overflow-y-auto select-none absolute left-1/2"
+              className="bg-white shadow-sm border border-zinc-200 rounded-sm flex flex-col justify-start relative overflow-y-auto select-none absolute left-1/2"
               style={{
                 top: '16px',
                 width: '595px',
