@@ -139,12 +139,12 @@ function GuestHeader() {
     <header className="sticky top-0 z-50 border-b border-zinc-200/70 bg-white/85 backdrop-blur-xl">
       <div className="page-shell h-16 flex items-center justify-between gap-4">
         <Link to="/" className="flex items-center gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-2xl bg-brand flex items-center justify-center shadow-[0_12px_24px_rgba(26,31,46,0.16)]">
+          <div className="w-9 h-9 shrink-0 rounded-2xl bg-brand flex items-center justify-center shadow-[0_12px_24px_rgba(26,31,46,0.16)]">
             <Sparkles className="w-4 h-4 text-white" />
           </div>
           <div className="leading-tight min-w-0">
             <span className="block text-slate-ink text-[15px] font-semibold tracking-tight">ResumeAI</span>
-            <span className="block text-[10px] uppercase tracking-[0.24em] text-zinc-500">Resume optimization workspace</span>
+            <span className="hidden sm:block text-[10px] uppercase tracking-[0.24em] text-zinc-500">Resume optimization workspace</span>
           </div>
         </Link>
 

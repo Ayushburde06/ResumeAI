@@ -25,12 +25,12 @@ export default function Navbar() {
     <nav className="sticky top-0 left-0 right-0 z-50 border-b border-white/70 bg-white/85 backdrop-blur-xl">
       <div className="page-shell h-16 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
-          <div className="w-9 h-9 rounded-2xl bg-brand flex items-center justify-center shadow-[0_12px_24px_rgba(26,31,46,0.16)]">
+          <div className="w-9 h-9 shrink-0 rounded-2xl bg-brand flex items-center justify-center shadow-[0_12px_24px_rgba(26,31,46,0.16)]">
             <Sparkles className="w-4 h-4 text-white" />
           </div>
           <div className="leading-tight">
             <span className="block text-slate-ink text-lg tracking-tight font-semibold">ResumeAI</span>
-            <span className="block text-[11px] uppercase tracking-[0.22em] text-zinc-500">Tailoring workspace</span>
+            <span className="hidden sm:block text-[11px] uppercase tracking-[0.22em] text-zinc-500">Tailoring workspace</span>
           </div>
         </Link>
 

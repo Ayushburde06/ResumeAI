@@ -169,13 +169,13 @@ export default function Dashboard() {
                     onClick={() => navigate(`/results/${item.id}`)}
                   >
                     <CardContent className="p-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex items-start gap-3">
+                      <div className="flex items-start gap-3 min-w-0">
                         <div className="w-10 h-10 rounded-2xl bg-zinc-50 border border-zinc-200 flex items-center justify-center shrink-0">
                           <FileText className="h-4.5 w-4.5 text-zinc-500" />
                         </div>
-                        <div>
+                        <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-sm font-semibold text-zinc-900">{item.candidate_name || 'Resume'}</p>
+                            <p className="text-sm font-semibold text-zinc-900 truncate">{item.candidate_name || 'Resume'}</p>
                             {item.ats_score !== null && (
                               <Badge
                                 style={{
@@ -183,18 +183,19 @@ export default function Dashboard() {
                                   color: meta.color,
                                   border: 'none',
                                 }}
+                                className="shrink-0"
                               >
                                 {item.ats_score}/100
                               </Badge>
                             )}
                           </div>
-                          <p className="text-xs text-zinc-500 mt-1">
+                          <p className="text-xs text-zinc-500 mt-1 break-words">
                             {item.job_title} · {timeAgo(item.created_at)}
                           </p>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-2 w-full sm:w-auto justify-end" onClick={(e) => e.stopPropagation()}>
                         {confirmDeleteId === item.id ? (
                           <>
                             <Button
@@ -202,10 +203,11 @@ export default function Dashboard() {
                               size="sm"
                               onClick={() => handleDelete(item.id)}
                               disabled={deletingId === item.id}
+                              className="flex-1 sm:flex-initial"
                             >
                               {deletingId === item.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Yes, delete'}
                             </Button>
-                            <Button variant="ghost" size="sm" onClick={() => setConfirmDeleteId(null)}>
+                            <Button variant="ghost" size="sm" onClick={() => setConfirmDeleteId(null)} className="flex-1 sm:flex-initial">
                               Cancel
                             </Button>
                           </>
@@ -215,7 +217,7 @@ export default function Dashboard() {
                               variant="outline"
                               size="sm"
                               onClick={() => navigate(`/results/${item.id}`)}
-                              className="rounded-xl"
+                              className="rounded-xl flex-1 sm:flex-none justify-center"
                             >
                               Tailor again
                               <ArrowUpRight className="w-3.5 h-3.5 ml-2" />
@@ -223,7 +225,7 @@ export default function Dashboard() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-9 w-9 text-zinc-400 hover:text-red-600"
+                              className="h-9 w-9 text-zinc-400 hover:text-red-600 shrink-0"
                               onClick={() => setConfirmDeleteId(item.id)}
                             >
                               <Trash2 className="w-4 h-4" />
