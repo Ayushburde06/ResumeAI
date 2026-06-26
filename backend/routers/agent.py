@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from database import get_db
+from limiter import limiter
 from models.history import ResumeHistory
 from models.stats import UserStats, FREE_LIMIT
 from models.user import User
@@ -47,7 +48,9 @@ async def _sse_generator(
             for event_str in run_agent(resume_text, jd_text, model_id):
                 loop.call_soon_threadsafe(queue.put_nowait, event_str)
         except Exception as e:
-            err_evt = f"data: {json.dumps({'step': 'error', 'status': 'error', 'message': str(e)})}\n\n"
+            import traceback
+            traceback.print_exc()
+            err_evt = f"data: {json.dumps({'step': 'error', 'status': 'error', 'message': 'Agent analysis failed. Please try again.'})}\n\n"
             loop.call_soon_threadsafe(queue.put_nowait, err_evt)
         finally:
             loop.call_soon_threadsafe(queue.put_nowait, None)
@@ -103,6 +106,7 @@ async def _sse_generator(
 
 
 @router.post("/agent-analyze")
+@limiter.limit("10/minute")
 async def agent_analyze(
     request: Request,
     resume_file: UploadFile = File(..., description="Resume file — PDF or DOCX"),
@@ -147,7 +151,7 @@ async def agent_analyze(
 
     # ── Parse resume ─────────────────────────────────────────────────────────
     try:
-        resume_text = parse_resume(resume_file.filename, file_bytes)
+        resume_text = parse_resume(resume_file.filename, file_bytes, resume_file.content_type)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception:

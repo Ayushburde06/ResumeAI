@@ -27,7 +27,6 @@ import { Button } from '@/components/ui/button'
 const navLinks = [
   { label: 'Features', href: '#features' },
   { label: 'How it Works', href: '#how-it-works' },
-  { label: 'Pricing', href: '#pricing' },
   { label: 'FAQ', href: '#faq' },
 ]
 
@@ -107,13 +106,9 @@ const faqItems = [
 ]
 
 const footerLinks = [
-  { label: 'Features', href: '#features' },
-  { label: 'Pricing', href: '#pricing' },
-  { label: 'Privacy', href: '#faq' },
-  { label: 'Terms', href: '#faq' },
-  { label: 'GitHub', href: 'https://github.com/', external: true },
-  { label: 'Contact', href: 'mailto:hello@resumeai.dev', external: true },
-  { label: 'Twitter', href: 'https://x.com/', external: true },
+  { label: 'GitHub', href: 'https://github.com/' },
+  { label: 'LinkedIn', href: 'https://www.linkedin.com/' },
+  { label: 'Mail', href: 'mailto:hello@resumeai.dev' },
 ]
 
 function SectionHeading({
@@ -563,8 +558,6 @@ function GuestWorkspace() {
                 <a
                   key={item.label}
                   href={item.href}
-                  target={item.external ? '_blank' : undefined}
-                  rel={item.external ? 'noreferrer' : undefined}
                   className="hover:text-zinc-950 transition-colors"
                 >
                   {item.label}

@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
+from limiter import limiter
 from models.user import User
 from routers.auth import require_user
 from services.job_service import JOB_TYPES, SUPPORTED_SITES, format_job_description, search_jobs_async
@@ -63,7 +64,9 @@ class JobSearchResponse(BaseModel):
 
 
 @router.post("/jobs/search", response_model=JobSearchResponse)
+@limiter.limit("30/minute")
 async def search_jobs_endpoint(
+    request: Request,
     body: JobSearchRequest,
     _user: User = Depends(require_user),
 ):
@@ -79,7 +82,9 @@ async def search_jobs_endpoint(
 
 
 @router.post("/jobs/format-description")
+@limiter.limit("30/minute")
 async def format_description(
+    request: Request,
     job: JobListing,
     _user: User = Depends(require_user),
 ):

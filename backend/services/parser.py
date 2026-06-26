@@ -8,16 +8,28 @@ from docx import Document
 # Validate actual file content regardless of the supplied filename/extension.
 _PDF_MAGIC  = b"%PDF"
 _ZIP_MAGIC  = b"PK\x03\x04"   # DOCX, XLSX, PPTX are all ZIP-based
+_ALLOWED_CONTENT_TYPES = {
+    ".pdf": {"application/pdf", "application/octet-stream", ""},
+    ".docx": {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/octet-stream",
+        "",
+    },
+}
 
-def _check_mime(filename: str, file_bytes: bytes) -> None:
+def _check_mime(filename: str, file_bytes: bytes, content_type: str | None = None) -> None:
     """Raise ValueError if the file bytes do not match the expected type."""
     header = file_bytes[:8]
     lower  = filename.lower()
 
     if lower.endswith(".pdf"):
+        if content_type and content_type.lower() not in _ALLOWED_CONTENT_TYPES[".pdf"]:
+            raise ValueError("The uploaded file must be a PDF.")
         if not header.startswith(_PDF_MAGIC):
             raise ValueError("The uploaded file does not appear to be a valid PDF.")
     elif lower.endswith(".docx"):
+        if content_type and content_type.lower() not in _ALLOWED_CONTENT_TYPES[".docx"]:
+            raise ValueError("The uploaded file must be a DOCX.")
         if not header.startswith(_ZIP_MAGIC):
             raise ValueError("The uploaded file does not appear to be a valid DOCX.")
 
@@ -100,13 +112,13 @@ def extract_text_from_docx(file_bytes: bytes) -> str:
     return _append_links(base_text, urls)
 
 
-def parse_resume(filename: str, file_bytes: bytes) -> str:
+def parse_resume(filename: str, file_bytes: bytes, content_type: str | None = None) -> str:
     lower_name = filename.lower()
     if lower_name.endswith(".pdf"):
-        _check_mime(filename, file_bytes)
+        _check_mime(filename, file_bytes, content_type)
         return extract_text_from_pdf(file_bytes)
     elif lower_name.endswith(".docx"):
-        _check_mime(filename, file_bytes)
+        _check_mime(filename, file_bytes, content_type)
         return extract_text_from_docx(file_bytes)
     elif lower_name.endswith(".doc"):
         raise ValueError("Legacy .doc format is not supported. Please convert to .docx or .pdf.")

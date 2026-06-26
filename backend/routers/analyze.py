@@ -3,12 +3,13 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
+from limiter import limiter
 from models.history import ResumeHistory
 from models.stats import UserStats, FREE_LIMIT
 from models.user import User
@@ -114,7 +115,9 @@ def _validate_model_id(model_id: Optional[str], is_admin: bool = False) -> Optio
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
+@limiter.limit("20/minute")
 async def analyze(
+    request: Request,
     resume_file: UploadFile = File(..., description="Resume file — PDF or DOCX"),
     job_description: str = Form(..., description="Full text of the job description"),
     model: str = Form(default="", description="Model ID to use (e.g. qwen, glm, deepseek)"),
@@ -149,7 +152,7 @@ async def analyze(
         raise HTTPException(status_code=400, detail="Job description is too long (max 20,000 characters).")
 
     try:
-        resume_text = parse_resume(resume_file.filename, file_bytes)
+        resume_text = parse_resume(resume_file.filename, file_bytes, resume_file.content_type)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception:
@@ -168,10 +171,10 @@ async def analyze(
     try:
         job_analysis = analyse_job_description(job_description, model_id=model_id)
         tailored_resume = rewrite_resume(resume_text, job_description, job_analysis, model_id=model_id)
-    except Exception as e:
+    except Exception:
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=502, detail=f"AI service is temporarily unavailable. Error: {str(e)}")
+        raise HTTPException(status_code=502, detail="AI service is temporarily unavailable. Please try again.")
 
     tailored_text = json.dumps(tailored_resume)
     original_ats = compute_ats_score(tailored_text, job_description)
@@ -222,10 +225,10 @@ async def analyze(
                 )
                 cover_letter = cover_future.result()
                 application_email = email_future.result()
-    except Exception as e:
+    except Exception:
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=502, detail=f"AI service is temporarily unavailable. Error: {str(e)}")
+        raise HTTPException(status_code=502, detail="AI service is temporarily unavailable. Please try again.")
 
     final_ats = ats
     quality_report = assess_resume_quality(
@@ -298,7 +301,9 @@ async def analyze(
 
 
 @router.post("/suggest-job-search", response_model=SuggestJobSearchResponse)
+@limiter.limit("20/minute")
 async def suggest_job_search(
+    request: Request,
     resume_file: UploadFile = File(..., description="Resume file — PDF or DOCX"),
     model: str = Form(default="", description="Model ID to use (e.g. qwen, glm, deepseek)"),
     _user: User = Depends(require_user),
@@ -313,7 +318,7 @@ async def suggest_job_search(
         raise HTTPException(status_code=413, detail="File too large. Maximum size is 10 MB.")
 
     try:
-        resume_text = parse_resume(resume_file.filename, file_bytes)
+        resume_text = parse_resume(resume_file.filename, file_bytes, resume_file.content_type)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception:
@@ -335,7 +340,9 @@ async def suggest_job_search(
 
 
 @router.post("/export-pdf")
+@limiter.limit("30/minute")
 async def export_pdf(
+    request: Request,
     body: ExportRequest,
     _user: User = Depends(require_user),
 ):
@@ -343,10 +350,10 @@ async def export_pdf(
         pdf_bytes = generate_pdf(body.resume, body.template)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
+    except Exception:
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="PDF generation failed. Please try again.")
 
     filename = _safe_pdf_filename(body.resume, body.template)
     return StreamingResponse(
@@ -357,7 +364,9 @@ async def export_pdf(
 
 
 @router.post("/export-latex")
+@limiter.limit("30/minute")
 async def export_latex(
+    request: Request,
     body: ExportRequest,
     _user: User = Depends(require_user),
 ):
@@ -379,7 +388,9 @@ async def export_latex(
 
 
 @router.post("/improve-ats", response_model=ImproveATSResponse)
+@limiter.limit("20/minute")
 async def improve_ats(
+    request: Request,
     body: ImproveATSRequest,
     _user: User = Depends(require_user),
 ):
@@ -412,7 +423,9 @@ async def improve_ats(
 
 
 @router.post("/rescore-ats", response_model=RescoreATSResponse)
+@limiter.limit("30/minute")
 async def rescore_ats(
+    request: Request,
     body: RescoreATSRequest,
     _user: User = Depends(require_user),
 ):
