@@ -31,3 +31,7 @@ Thumbs.db
 *.swp
 *.pdf
 *.docx
+
+# Local-only design reference
+BRAIN.md
+
