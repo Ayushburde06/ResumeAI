@@ -97,7 +97,7 @@ grep -q "^AllowUsers" /etc/ssh/sshd_config || echo "AllowUsers ubuntu" >> /etc/s
 grep -q "^MaxAuthTries" /etc/ssh/sshd_config || echo "MaxAuthTries 3" >> /etc/ssh/sshd_config
 grep -q "^LoginGraceTime" /etc/ssh/sshd_config || echo "LoginGraceTime 20" >> /etc/ssh/sshd_config
 
-systemctl restart sshd
+systemctl restart ssh || systemctl restart sshd
 echo "SSH hardened."
 
 # =============================================================================
