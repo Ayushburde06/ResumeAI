@@ -3,14 +3,16 @@
 <head>
 <meta charset="UTF-8"/>
 <style>
-  @page { size: auto; margin: 0; }
+  @page { size: 210mm 297mm; margin: 0; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { width: 210mm; }
   body {
     font-family: "Times New Roman", Times, serif;
     font-size: 8.2pt;
     color: #111;
     line-height: 1.25;
     padding: 15mm;
+    width: 210mm;
   }
 
   /* Header */
@@ -33,9 +35,9 @@
   }
 
   /* Section */
-  .section { margin-bottom: 4px; }
+  .section { margin-bottom: 4px; page-break-inside: avoid; }
   .section-title {
-    font-size: 8.5pt;
+    font-size: inherit;
     font-weight: normal;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -49,23 +51,23 @@
   a { color: #000; text-decoration: underline; }
 
   /* Summary */
-  .summary { font-size: 9pt; text-align: justify; }
+  .summary { font-size: inherit; text-align: justify; }
 
   /* Entry rows (edu / experience) */
-  .entry { margin-bottom: 4px; }
+  .entry { margin-bottom: 4px; page-break-inside: avoid; }
   .entry-row {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
   }
   .entry-main { font-weight: bold; }
-  .entry-right { font-size: 8.5pt; }
+  .entry-right { font-size: inherit; }
   .entry-sub {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
     font-style: italic;
-    font-size: 8.5pt;
+    font-size: inherit;
     padding-left: 10px;
     margin-top: 1px;
   }

@@ -1,0 +1,50 @@
+{
+  "contact": {
+    "name": "Ayushkumar Burde",
+    "email": "ayushburde156@gmail.com",
+    "phone": "+91-8600820291",
+    "location": "Mumbai, India"
+  },
+  "summary": "Software engineer with a Master's in Computer Applications. Experienced in Python, React, and backend development.",
+  "experience": [
+    {
+      "company": "CrystalTech Services Pvt Ltd",
+      "role": "Software Engineer Intern",
+      "dates": "Jul 2024 – Dec 2024",
+      "location": "Indore, India",
+      "bullets": [
+        "Built REST APIs with Node.js and Express.js; deployed on AWS for improved reliability."
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "ResumeAI",
+      "tech": "React, FastAPI, Python",
+      "dates": "Jun 2026 – Present",
+      "link": "",
+      "bullets": [
+        "Developed an AI-powered ATS Resume Builder with real-time streaming and keyword optimization."
+      ]
+    }
+  ],
+  "skills": {
+    "Languages": ["Python", "JavaScript", "TypeScript"],
+    "Backend": ["Node.js", "Django"]
+  },
+  "education": [
+    {
+      "institution": "Tulsiramji Gaikwad Patil College of Engineering and Technology",
+      "degree": "Master of Computer Applications",
+      "year": "2025",
+      "location": "Nagpur, India"
+    }
+  ],
+  "certifications": [
+    {
+      "name": "Complete 2025 Python Bootcamp From Scratch",
+      "issuer": "Udemy",
+      "year": "2024"
+    }
+  ]
+}

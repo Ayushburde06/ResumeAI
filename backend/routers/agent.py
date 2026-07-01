@@ -18,7 +18,6 @@ from routers.auth import require_user, ADMIN_EMAILS
 from services.parser import parse_resume
 from services.agent_orchestrator import run_agent
 from services.rag_service import get_store_stats
-from services.ai_service import get_available_models
 from routers.analyze import _validate_model_id
 
 router = APIRouter()
@@ -86,27 +85,57 @@ async def _sse_generator(
         except Exception:
             pass
 
+        history_id = None
         try:
             ja = final_result.get("job_analysis", {})
+            ats_score = final_result.get("ats_score", 0)
+            ats_report = final_result.get("ats_report", {})
             entry = ResumeHistory(
                 user_id=user.id,
                 job_title=ja.get("job_title", ""),
-                ats_score=final_result.get("ats_score", 0),
+                ats_score=ats_score,
                 tailored_resume=final_result.get("tailored_resume", {}),
                 cover_letter=final_result.get("cover_letter", {}),
                 application_email=final_result.get("application_email", {}),
                 job_analysis=ja,
                 quality_report=final_result.get("quality_report", {}),
                 job_description=jd_text,
+                matched_keywords=ats_report.get("matched_keywords", []),
+                missing_keywords=ats_report.get("missing_keywords", []),
+                total_keywords=ats_report.get("total_keywords", 0),
             )
             db.add(entry)
             db.commit()
+            db.refresh(entry)
+            history_id = entry.id
+            # Emit history_id to the client so the frontend can link feedback
+            history_event = f"data: {{\"step\": \"history_saved\", \"history_id\": {history_id}}}\n\n"
+            loop.call_soon_threadsafe(queue.put_nowait, history_event)
         except Exception:
             pass  # Never block the stream due to save failure
 
+        # ── Learning store: save winning examples for future RAG retrieval ──
+        try:
+            from services.learning_store import save_winning_example
+            ats_score = final_result.get("ats_score", 0)
+            if ats_score >= 88:
+                ja = final_result.get("job_analysis", {})
+                save_winning_example(
+                    db=db,
+                    job_title=ja.get("job_title", ""),
+                    seniority=ja.get("seniority", ""),
+                    required_skills=ja.get("required_skills", []),
+                    resume=final_result.get("tailored_resume", {}),
+                    ats_score=ats_score,
+                    model_used=model_id or "",
+                    history_id=history_id,
+                )
+        except Exception:
+            pass  # Never block response for learning store failures
+
 
 @router.post("/agent-analyze")
-@limiter.limit("10/minute")
+@limiter.limit("3/minute")   # Agent mode is 5–10x more expensive than standard
 async def agent_analyze(
     request: Request,
     resume_file: UploadFile = File(..., description="Resume file — PDF or DOCX"),

@@ -7,6 +7,7 @@ interface AuthContextValue {
   token: string | null
   login: (token: string, user: AuthUser) => void
   logout: () => void
+  refreshUser: () => Promise<void>
   isLoading: boolean
 }
 
@@ -15,6 +16,7 @@ const AuthContext = createContext<AuthContextValue>({
   token: null,
   login: () => {},
   logout: () => {},
+  refreshUser: async () => {},
   isLoading: false,
 })
 
@@ -93,6 +95,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // useEffect above will fire because token changed → fetches live stats
   }
 
+  async function refreshUser() {
+    if (!token) return
+    try {
+      const { data } = await axios.get<AuthUser>('/api/auth/me')
+      setUser((prev) => {
+        const updated = prev ? { ...prev, ...data } : data
+        localStorage.setItem('auth_user', JSON.stringify(updated))
+        return updated
+      })
+    } catch {
+      // silently fail — stale data is better than crashing
+    }
+  }
+
   function logout() {
     setToken(null)
     setUser(null)
@@ -102,7 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, token, login, logout, refreshUser, isLoading }}>
       {children}
     </AuthContext.Provider>
   )

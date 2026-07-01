@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
-import { Download, Eye, FileCode, Loader2, Pencil } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { Download, Eye, FileCode, Loader2, Pencil, Save } from 'lucide-react'
 import type { TailoredResume } from '../types'
 import { exportLatex, exportPdf } from '../lib/api'
 import { buildContactItems, linkLabel, toHref } from '../lib/resumeLinks'
@@ -653,15 +653,33 @@ const getScore = (n: number) => ({
   bg: n >= 80 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : n >= 60 ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-red-50 text-red-700 border-red-100'
 })
 
+const EDIT_STORAGE_KEY = 'resume_unsaved_edits'
+
 export default function ResumePreview({ resume, atsScore, onResumeChange, onEditComplete, rescoring }: Props) {
   const [template, setTemplate] = useState<TemplateId>('modern')
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
   const [exportingTex, setExportingTex] = useState(false)
   const [editing, setEditing] = useState(false)
+  const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const [scale, setScale] = useState(1)
+
+  // Restore any unsaved edits from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(EDIT_STORAGE_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved) as typeof resume
+        onResumeChange(parsed)
+        setHasUnsavedEdits(true)
+      }
+    } catch {
+      localStorage.removeItem(EDIT_STORAGE_KEY)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -680,6 +698,16 @@ export default function ResumePreview({ resume, atsScore, onResumeChange, onEdit
     return () => resizeObserver.disconnect()
   }, [])
 
+  const handleResumeChange = useCallback((updated: TailoredResume) => {
+    onResumeChange(updated)
+    try {
+      localStorage.setItem(EDIT_STORAGE_KEY, JSON.stringify(updated))
+      setHasUnsavedEdits(true)
+    } catch {
+      // storage quota exceeded — silently ignore
+    }
+  }, [onResumeChange])
+
   function handleToggleEdit() {
     if (editing) {
       onEditComplete?.()
@@ -687,6 +715,14 @@ export default function ResumePreview({ resume, atsScore, onResumeChange, onEdit
     } else {
       setEditing(true)
     }
+  }
+
+  function handleSaveEdits() {
+    // Persist is already done on every change; this just clears the "unsaved" badge
+    localStorage.removeItem(EDIT_STORAGE_KEY)
+    setHasUnsavedEdits(false)
+    onEditComplete?.()
+    setEditing(false)
   }
 
   async function handleExportTex() {
@@ -733,10 +769,25 @@ export default function ResumePreview({ resume, atsScore, onResumeChange, onEdit
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto shrink-0">
+          {hasUnsavedEdits && !editing && (
+            <span className="flex items-center gap-1.5 text-xs font-medium text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              Unsaved edits
+            </span>
+          )}
+          {editing && (
+            <button
+              onClick={handleSaveEdits}
+              className="btn-primary text-sm py-2 bg-emerald-600 hover:bg-emerald-700 border-emerald-600"
+            >
+              <Save className="w-4 h-4" />
+              Save Edits
+            </button>
+          )}
           <button
             onClick={handleToggleEdit}
             disabled={rescoring}
-            className={editing ? 'btn-primary text-sm py-2' : 'btn-secondary text-sm py-2'}
+            className={editing ? 'btn-secondary text-sm py-2' : 'btn-secondary text-sm py-2'}
           >
             {rescoring ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -745,7 +796,7 @@ export default function ResumePreview({ resume, atsScore, onResumeChange, onEdit
             ) : (
               <Pencil className="w-4 h-4" />
             )}
-            {rescoring ? 'Updating…' : editing ? 'Done Editing' : 'Edit Resume'}
+            {rescoring ? 'Updating…' : editing ? 'Cancel' : 'Edit Resume'}
           </button>
           <button onClick={handleExport} disabled={exporting || editing} className="btn-primary text-sm py-2">
             {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
@@ -794,7 +845,7 @@ export default function ResumePreview({ resume, atsScore, onResumeChange, onEdit
 
       {editing ? (
         <div className="rounded-xl border border-brand-100 bg-brand-50/30 p-4 sm:p-5">
-          <ResumeEditor resume={resume} onChange={onResumeChange} />
+          <ResumeEditor resume={resume} onChange={handleResumeChange} />
         </div>
       ) : (
         <div>

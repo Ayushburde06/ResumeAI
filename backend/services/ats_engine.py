@@ -61,6 +61,8 @@ TECH_BIGRAMS = {
     "object oriented", "object oriented programming", "functional programming",
     "event driven", "domain driven", "type safety",
     "open source", "code review", "technical documentation",
+    # Modern AI/ML & Agentic
+    "vector database", "vector databases", "retrieval augmented", "retrieval augmented generation", "agentic ai", "prompt engineering", "agentic architecture"
 }
 
 # Irregular verb → root mapping for better stemming
@@ -151,7 +153,9 @@ TECH_UNIGRAMS = {
     "mariadb", "sqlite", "dynamodb", "firebase", "supabase", "snowflake", "redshift", "bigquery", "oracle", "kafka", "rabbitmq",
     # Core concepts
     "html", "css", "sass", "tailwind", "bootstrap", "linux", "unix", "bash", "powershell", "ci", "cd", "cicd",
-    "qa", "testing", "automation", "serverless", "microservices", "frontend", "backend", "fullstack", "devops", "mldevops", "mlops"
+    "qa", "testing", "automation", "serverless", "microservices", "frontend", "backend", "fullstack", "devops", "mldevops", "mlops",
+    # Modern AI/ML & Agentic terms
+    "openai", "deepseek", "llm", "llms", "rag", "agent", "agents", "langchain", "llama", "claude", "gemini", "embedding", "embeddings", "pinecone", "chromadb", "qdrant", "milvus", "agentic"
 }
 
 
@@ -165,12 +169,11 @@ def _extract_capitalized_tech(jd_text: str) -> set[str]:
         # Remove leading bullet points or numbers
         line = re.sub(r'^[\s\-\*\•\d\.\)]+', '', line).strip()
         words = line.split()
-        if len(words) > 1:
-            for w in words[1:]:
-                # Clean punctuation from the word edges
-                cleaned = re.sub(r'^[^a-zA-Z0-9+#\-]+|[^a-zA-Z0-9+#\-]+$', '', w)
-                if cleaned and cleaned[0].isupper() and cleaned.lower() not in STOP_WORDS:
-                    tech.add(cleaned.lower())
+        for w in words:
+            # Clean punctuation from the word edges
+            cleaned = re.sub(r'^[^a-zA-Z0-9+#\-]+|[^a-zA-Z0-9+#\-]+$', '', w)
+            if cleaned and cleaned[0].isupper() and cleaned.lower() not in STOP_WORDS:
+                tech.add(cleaned.lower())
     return tech
 
 
@@ -231,6 +234,28 @@ def get_resume_plain_text(resume: dict | str) -> str:
     return "\n".join(str(p) for p in parts if p)
 
 
+_INJECTION_PATTERNS = re.compile(
+    r"\b(ignore|disregard|forget|override|bypass|jailbreak|"
+    r"rename|invent|fabricate|hallucinate|pretend|act as|"
+    r"you are now|system prompt|hidden instruction|evil|hacker|"
+    r"stanford|harvard|phd|ivy league|from now on|new persona)\b",
+    re.IGNORECASE,
+)
+
+def _sanitize_jd(jd_text: str) -> str:
+    """
+    Strip prompt-injection patterns from the JD before keyword extraction.
+    Lines containing injection phrases are removed entirely to prevent
+    malicious keywords from polluting the ATS score or AI prompt context.
+    """
+    clean_lines = []
+    for line in jd_text.splitlines():
+        if _INJECTION_PATTERNS.search(line):
+            continue   # drop this line silently
+        clean_lines.append(line)
+    return "\n".join(clean_lines)
+
+
 def _extract_jd_keywords(jd_text: str) -> set[str]:
     # Extract unigrams
     words = re.findall(r"\b[a-z][a-z0-9+#\-.]{1,}\b", jd_text.lower())
@@ -263,7 +288,7 @@ def _stem(word: str) -> str:
 
 def compute_ats_score(resume_text: str, jd_text: str) -> ATSResult:
     plain_text = get_resume_plain_text(resume_text)
-    jd_keywords = _extract_jd_keywords(jd_text)
+    jd_keywords = _extract_jd_keywords(_sanitize_jd(jd_text))
     resume_tokens = _tokenize(plain_text)
     resume_stems = {_stem(t) for t in resume_tokens}
     resume_text_lower = plain_text.lower()

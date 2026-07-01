@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ResumeData",
+  "type": "object",
+  "required": ["contact", "summary", "experience", "projects", "skills", "education"],
+  "additionalProperties": false,
+  "properties": {
+    "contact": {
+      "type": "object",
+      "required": ["name", "email", "phone", "location"],
+      "additionalProperties": false,
+      "properties": {
+        "name":     { "type": "string", "minLength": 2 },
+        "email":    { "type": "string", "format": "email" },
+        "phone":    { "type": "string", "minLength": 7 },
+        "location": { "type": "string", "minLength": 2 },
+        "linkedin": { "type": "string" },
+        "github":   { "type": "string" },
+        "website":  { "type": "string" }
+      }
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 40,
+      "maxLength": 600
+    },
+    "experience": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["company", "role", "dates", "location", "bullets"],
+        "additionalProperties": false,
+        "properties": {
+          "company":  { "type": "string", "minLength": 2 },
+          "role":     { "type": "string", "minLength": 2 },
+          "dates":    { "type": "string" },
+          "location": { "type": "string" },
+          "bullets": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 6,
+            "items": { "type": "string", "minLength": 20 }
+          }
+        }
+      }
+    },
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "tech", "bullets"],
+        "additionalProperties": false,
+        "properties": {
+          "name":   { "type": "string", "minLength": 2 },
+          "tech":   { "type": "string", "minLength": 2 },
+          "dates":  { "type": "string" },
+          "link":   { "type": "string" },
+          "bullets": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 5,
+            "items": { "type": "string", "minLength": 20 }
+          }
+        }
+      }
+    },
+    "skills": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "items": { "type": "string", "minLength": 1 }
+      }
+    },
+    "education": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["institution", "degree", "year", "location"],
+        "additionalProperties": false,
+        "properties": {
+          "institution": { "type": "string", "minLength": 3 },
+          "degree":      { "type": "string", "minLength": 3 },
+          "year":        { "type": "string", "pattern": "^[0-9]{4}$" },
+          "location":    { "type": "string" }
+        }
+      }
+    },
+    "certifications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "issuer", "year"],
+        "additionalProperties": false,
+        "properties": {
+          "name":   { "type": "string", "minLength": 3 },
+          "issuer": { "type": "string", "minLength": 2 },
+          "year":   { "type": "string", "pattern": "^[0-9]{4}$" }
+        }
+      }
+    }
+  }
+}

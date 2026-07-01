@@ -10,8 +10,6 @@ _PLACEHOLDERS = {
     "CHANGE_THIS_TO_A_RANDOM_64_CHAR_HEX_STRING",
     "YOUR_QWEN_API_KEY_HERE",
     "YOUR_GLM_API_KEY_HERE",
-    "YOUR_GLM_FLASH_API_KEY_HERE",
-    "YOUR_DEEPSEEK_API_KEY_HERE",
     "",
 }
 
@@ -22,7 +20,7 @@ _REQUIRED = {
 _AT_LEAST_ONE_MODEL = {
     "QWEN_API_KEY":       "Qwen model",
     "AZURE_OPENAI_API_KEY": "GLM-5 model",
-    "GLM_FLASH_API_KEY":  "GLM-4.7 Flash model",
+    "DEEPSEEK_API_KEY":   "DeepSeek model",
 }
 
 
@@ -44,7 +42,7 @@ def run():
     if not configured_models:
         errors.append(
             "  ✗ No AI model API key found.\n"
-            "    → Set at least one of: QWEN_API_KEY, AZURE_OPENAI_API_KEY, or GLM_FLASH_API_KEY"
+            "    → Set at least one of: QWEN_API_KEY or AZURE_OPENAI_API_KEY"
         )
 
     if errors:

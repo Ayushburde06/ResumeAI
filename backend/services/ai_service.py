@@ -1,9 +1,12 @@
 import json
 import os
+import re
 from openai import OpenAI
 from dotenv import load_dotenv
 
-load_dotenv(override=True)
+# Do NOT use override=True in production — it would silently replace
+# real environment variables set by the deployment platform with .env values.
+load_dotenv(override=False)
 
 # ── Model Registry ────────────────────────────────────────────────────────
 
@@ -18,10 +21,43 @@ def _is_placeholder(value: str) -> bool:
     return not value or any(p in value for p in _PLACEHOLDER_FRAGMENTS)
 
 
+def _parse_json_response(content: str) -> dict:
+    """Safely parse JSON from LLM response, stripping markdown blocks if present."""
+    content = content.strip()
+    if content.startswith("```"):
+        # Find the first { and the last }
+        start = content.find("{")
+        end = content.rfind("}")
+        if start != -1 and end != -1:
+            content = content[start : end + 1]
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        # Fallback to regex matching
+        match = re.search(r"\{.*\}", content, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(0))
+            except json.JSONDecodeError:
+                pass
+        raise
+
+
 def _register_models():
     """Build model registry from environment variables."""
     global MODEL_REGISTRY
     MODEL_REGISTRY = {}
+
+    # DeepSeek
+    deepseek_key = os.environ.get("DEEPSEEK_API_KEY", "")
+    if not _is_placeholder(deepseek_key):
+        MODEL_REGISTRY["deepseek"] = {
+            "id": "deepseek",
+            "display_name": "DeepSeek V4 Pro",
+            "endpoint": os.environ.get("DEEPSEEK_ENDPOINT", "https://amban-mok3d5jj-eastus2.services.ai.azure.com/openai/v1"),
+            "api_key": deepseek_key,
+            "model": os.environ.get("DEEPSEEK_DEPLOYMENT", "DeepSeek-V4-Pro"),
+        }
 
     # Qwen
     qwen_key = os.environ.get("QWEN_API_KEY", "")
@@ -46,31 +82,6 @@ def _register_models():
             "model": os.environ.get("AZURE_OPENAI_DEPLOYMENT", "zai.glm-5"),
         }
 
-    # GLM-4.7 Flash
-    glm_flash_key = os.environ.get("GLM_FLASH_API_KEY", "")
-    glm_flash_endpoint = os.environ.get("GLM_FLASH_ENDPOINT", "")
-    if not _is_placeholder(glm_flash_key) and glm_flash_endpoint:
-        MODEL_REGISTRY["glm-flash"] = {
-            "id": "glm-flash",
-            "display_name": "GLM-4.7 Flash",
-            "endpoint": glm_flash_endpoint,
-            "api_key": glm_flash_key,
-            "model": os.environ.get("GLM_FLASH_MODEL", "zai.glm-4.7-flash"),
-            "admin_only": False,
-        }
-
-    # DeepSeek-V4-Flash (admin-only — not shown to public users)
-    ds_key = os.environ.get("DEEPSEEK_API_KEY", "")
-    ds_endpoint = os.environ.get("DEEPSEEK_ENDPOINT", "")
-    if not _is_placeholder(ds_key) and ds_endpoint:
-        MODEL_REGISTRY["deepseek"] = {
-            "id": "deepseek",
-            "display_name": "DeepSeek-V4-Flash",
-            "endpoint": ds_endpoint,
-            "api_key": ds_key,
-            "model": os.environ.get("DEEPSEEK_MODEL", "DeepSeek-V4-Flash"),
-            "admin_only": True,   # only returned to admin users
-        }
 
 
 _register_models()
@@ -136,6 +147,20 @@ def _get_client(model_id: str | None = None) -> tuple[OpenAI, str]:
     return _clients[model_id], cfg["model"]
 
 
+def _get_cheap_client(preferred_model_id: str | None = None) -> tuple[OpenAI, str]:
+    """
+    Return a client for low-stakes calls (gap analysis, planning, extraction).
+    Prefers glm-flash → glm → first available model.
+    Falls back to the user-selected model if no cheap model is registered.
+    """
+    _CHEAP_PREFERENCE = ["glm-flash", "glm", "qwen"]
+    for candidate in _CHEAP_PREFERENCE:
+        if candidate in MODEL_REGISTRY:
+            return _get_client(candidate)
+    # Fall back to user-selected model
+    return _get_client(preferred_model_id)
+
+
 # ── Prompts ──────────────────────────────────────────────────────────────────
 # Key philosophy: genuine, simple, human-readable resumes.
 # No fancy buzzwords. No bluff. Clean formatting. ATS-optimized but HR-friendly.
@@ -178,113 +203,35 @@ Be exhaustive — extract every specific term, technology, tool, methodology, an
 JOB DESCRIPTION:
 {jd}"""
 
-REWRITE_SYSTEM = """You are an expert ATS resume writer and software engineering resume formatter.
+BASE_SYSTEM_INSTRUCTIONS = """You are ResumeAI Elite, an autonomous multi-agent resume optimization system.
+Your purpose is to optimize resumes for software engineering jobs while preserving factual accuracy.
+Your outputs must be indistinguishable from documents written by experienced engineers and reviewed by recruiters.
 
-Your task is to improve and restructure an existing resume while preserving all truthful information,
-technologies, education, experience, projects, dates, companies, links, and the candidate's professional identity.
+ABSOLUTE RULES:
+- Never invent: Experience, Projects, Metrics, Technologies, Companies, Certifications, Responsibilities.
+- Never exaggerate or remove truthful information.
+- Never make the resume look AI-generated. Avoid all markdown formatting (no **, no *).
+- BANNED BUZZWORDS (never use): passionate, hardworking, dedicated, motivated, results-driven, spearheaded, leveraged, orchestrated, synergized, revolutionized, pioneered, championed, showcased, streamlined, dynamic, details-oriented, fast learner.
+- Instead use active verbs: built, designed, implemented, integrated, optimized, developed, automated, validated, deployed, refactored, improved.
+- If something cannot honestly be improved, leave it unchanged.
 
-INTEGRITY RULES:
-- Do NOT invent fake experience, metrics, companies, credentials, tools, deployments, APIs, users, or achievements.
-- Do NOT remove important technologies or projects that are already present.
-- Do NOT change the candidate's overall professional identity.
-- If a section already looks strong, leave its meaning mostly unchanged.
-- The resume text may end with a "Hyperlinks:" section — use those URLs for linkedin, github, website fields.
-- Use ONLY the dates, company names, and project names exactly as they appear in the input. Do not reformat, approximate, or invent any of them.
-- Where the original resume contains real counts (number of services, endpoints, team size, deployment platform), preserve and use them naturally. Never add numbers that are not in the original.
+PROJECTS (HIGHEST PRIORITY):
+Ensure project descriptions cover: problem solved, implementation details, tech stack, engineering decisions, deployment, and technical interest. Typical range: 4–6 bullets per project.
 
-TARGET PROFILE:
-- Optimize for Software Engineer Intern, Full Stack Developer, Python Developer, MERN Stack Developer, and Backend Developer roles.
-- Make the resume sound like a polished fresher or early-career software engineering resume — honest about being early-career, not a corporate mission statement.
+EXPERIENCE:
+Highlight ownership, engineering, collaboration, backend work, APIs, databases, deployments, debugging, and production practices. Do not inflate internship work. Max 3 bullets per job.
 
-WRITING STYLE:
-- Professional, concise, technical, human-written, and recruiter-friendly.
-- Vary bullet openers naturally: some start with an action verb (Built, Integrated, Debugged), some start with a technology name ("React dashboard for..."), some lead with context ("As part of the backend team..."). Avoid starting every bullet the same way.
-- Use strong but realistic action verbs: built, developed, implemented, integrated, debugged, optimized, deployed, designed, wrote, configured, migrated.
-- Avoid fluff, repetitive wording, excessive buzzwords, and keyword stuffing.
-- NEVER use these overused buzzwords: spearheaded, orchestrated, synergized, revolutionized, pioneered, championed, leveraged, utilized.
-- Keep bullets factual: what was built, which specific technologies were used, and what practical result or feature was delivered.
-- Each experience bullet must describe one specific task or outcome — not a generic responsibility. Avoid meaningless filler like "collaborated using Git" or "participated in Agile". Instead write the actual task: what was the problem, what was done, what technology was used.
+SKILLS:
+Organize into EXACTLY 5 categories: Languages, Frameworks, Databases, Tools, Concepts. Do not misclassify technologies.
 
-ONE-PAGE FORMAT RULES:
-- The final resume must fit naturally on one A4 page.
-- Keep summary to EXACTLY 2 sentences maximum. First sentence: who you are + core stack. Second sentence: one specific achievement or context. Do NOT mention the target company or job title by name — keep it general. Do NOT write more than 2 sentences.
-- Keep the summary human and readable. Avoid listing more than 3 technologies in the summary, even if the JD contains many keywords.
-- Keep experience to max 3 roles and max 3 bullets per role.
-- Keep projects to the most relevant 2-3 projects.
-- Because the app schema has one project description field, write each project description as 2-3 concise bullet points separated by \n (newline character). Never collapse to fewer than 2 lines.
-- For the strongest/most complex project use 3 bullets. For simpler side projects, 2 bullets is enough. Do not pad weaker projects to match stronger ones.
-- Do not overcrowd sections. Prefer clear, compact writing over long paragraphs.
-- Maximum 3 certifications.
+ATS OPTIMIZATION (VERBATIM KEYWORD INJECTION):
+- You must weave the exact missing keywords requested verbatim (using the exact same spelling and casing) into the updated resume naturally.
+- Do not paraphrase or use abbreviations (e.g., use 'Kubernetes', not 'k8s' unless requested)."""
 
-PROJECT RULES:
-- Improve projects significantly while preserving truthfulness.
-- Each project has a separate tech_stack array that is displayed right below the project name. Because of this, DO NOT repeat or re-list the same technology names inside the description bullets. The bullets should describe WHAT was built and HOW it works — not name-drop the same tools already visible in tech_stack.
-  BAD bullet: "Built with React.js frontend and Node.js/Express.js backend with JWT authentication"  (tech already in tech_stack)
-  GOOD bullet: "Full-stack task manager with JWT-protected REST endpoints and role-based access control"  (describes behaviour, not the tools)
-- Write bullets around FEATURES, ARCHITECTURE, and OUTCOMES — not around technology names.
-- Only name a specific technology in a bullet when it adds meaningful context not obvious from the tech_stack (e.g. "used Mongoose virtuals to avoid redundant DB calls", "server-side rendering via Next.js for SEO").
-- Each bullet must be one tight sentence — no run-on clauses joined by semicolons.
-- 2-3 bullets per project maximum; no padding.
-- Make projects technically mature without sounding fake.
-- Do not claim deployments, auth, databases, metrics, or cloud usage unless they appear in the original resume or job context.
-
-EXPERIENCE RULES:
-- Rewrite internships or early-career work professionally.
-- Each bullet must describe a specific task, not a generic role description. Name the actual component, module, or system worked on.
-- Highlight APIs, microservices, React integration, cloud deployment, debugging, Agile/SCRUM, and collaboration only when supported by existing information.
-- Keep it realistic for a fresher.
-
-SKILLS SECTION RULES:
-- Organize skills into exactly these 5 JSON categories:
-  languages  = Programming languages only (e.g. Python, JavaScript, Java, C++, TypeScript)
-  frameworks = Frameworks AND libraries AND runtime environments (e.g. React, Django, Express.js, Node.js, Spring Boot)
-  databases  = Database systems only (e.g. MySQL, PostgreSQL, MongoDB, SQLite, Redis)
-  tools      = Dev tools, platforms, cloud, DevOps, version control, CI/CD (e.g. Git, Docker, AWS, GitHub Actions)
-  concepts   = Methodologies and named patterns ONLY (e.g. REST API, Agile/SCRUM, OOP, MVC, SDLC, JWT, CI/CD)
-- ONLY list specific recognizable technologies, languages, frameworks, databases, tools, and named methodologies.
-- NEVER include ANY of the following as skills — they are soft skills or filler, not technical skills:
-  "problem-solving", "analytical skills", "team collaboration", "communication", "testing" (generic),
-  "best practices", "best development practices", "web development", "application development",
-  "digital transformation", "enterprise software services", "cloud engineering services", "mobility solutions",
-  "server-side programming", "web and server-side programming", "session management",
-  "modern technologies", "technical tools", "systems", "products", "projects", "requirements",
-  "practices", "overview", "software development", "cloud infrastructure", "cross-functional",
-  "development tools", "front-end", "back-end", "HTTP", "JSON", "extensibility", "reusable components".
-- "unit test", "integration test", "automated testing" are NOT skills — omit them from skills entirely.
-- Max per category: languages 6, frameworks 6, databases 4, tools 6, concepts 5.
-- Keep each category SHORT and clean. A recruiter should be able to scan it in 3 seconds.
-
-ATS RULES — TARGET HIGH MATCH WITHOUT OVERSTUFFING:
-- Cover EVERY term in job_analysis.required_skills and job_analysis.must_have. Missing even one required skill drops the ATS score significantly.
-- Cover as many terms as possible from job_analysis.preferred_skills and job_analysis.industry_keywords.
-- Use exact JD phrasing for keywords — ATS systems match exact strings. If the JD says "Node.js", write "Node.js" not "NodeJS". If it says "RESTful API", write "RESTful API".
-- For the top 6-8 priority keywords (job_analysis.keyword_density_targets), cover them naturally across the resume, but do not repeat the same term in every section.
-- Weave keywords into natural sentences — do not list them separately or pad bullets with keyword dumps.
-- If a keyword already appears clearly in one section, do not repeat it just to increase density unless it genuinely improves readability.
-- Keep formatting ATS-readable: no tables, icons, graphics, or complex wording in returned content.
-- Use both common variants where both appear in the JD (e.g. "REST API" and "RESTful API", "JavaScript" and "JS").
-- Add ADJACENT IMPLIED SKILLS: If the JD requires a skill the candidate almost certainly has based on their existing stack, add it naturally. Rules:
-  * React/Vue/Angular developer → can add HTML, CSS, JavaScript if not already listed
-  * Any backend developer → can add REST API, HTTP, JSON if not already listed
-  * Python developer → can add OOP, scripting if not already listed
-  * Anyone using GitHub → can add Git, version control if not already listed
-  * Anyone using any cloud service → can add cloud computing concept if missing
-  * Fresher who built web projects → can add HTML, CSS, responsive design if relevant to JD
-  * Anyone using SQL (MySQL/PostgreSQL/SQLite) → can add SQL, relational database
-  * Anyone using NoSQL → can add NoSQL, document database
-  These are REALISTIC additions — a candidate with these skills would naturally know the adjacent ones. Do NOT add unrelated skills (e.g. don't add Kubernetes to someone with no DevOps background).
-- Fill each project's tech_stack array with ONLY real named technologies: languages, frameworks, databases, and tools actually used (e.g. React, Node.js, MySQL, JWT, Git, Render). MAX 8 items per project.
-- NEVER put generic words in tech_stack: no "testing", "unit test", "integration test", "front-end", "back-end", "web development", "HTTP", "JSON", "MVC Framework", "REST API" — these are concepts, not technologies. Keep tech_stack clean and scannable.
-
-EMPHASIS RULES:
-- Use **double asterisks** only for important technologies, metrics already present, and a few job-matching keywords. Do not bold every tech term.
-- Bold 2-3 key terms per bullet at most.
-- Never bold entire sentences.
-
-Return ONLY valid JSON — use ** only for inline emphasis inside string values."""
+REWRITE_SYSTEM = BASE_SYSTEM_INSTRUCTIONS + "\n\nFocus mainly on projects, bullet quality, and ATS readability."
 
 REWRITE_PROMPT = """Improve and tailor the candidate's resume for this role using the system rules.
-Focus mainly on projects, bullet quality, one-page balance, technical clarity, and ATS readability.
+Focus mainly on projects, bullet quality, and ATS readability.
 
 {keyword_injection}
 
@@ -294,98 +241,39 @@ EXISTING RESUME:
 JOB ANALYSIS:
 {job_analysis}
 
-ORIGINAL JOB DESCRIPTION:
-{jd}
-
 Return JSON with EXACTLY this shape:
 {{
   "personal_info": {{
     "name": "...", "email": "...", "phone": "...", "location": "...",
     "linkedin": "...", "github": "...", "website": "..."
   }},
-  "summary": "2-3 lines in implied first-person tone — honest, specific to the candidate's actual stack, early-career but confident. Example: 'MCA graduate with hands-on experience building full-stack web applications using **Python** and **React**. Worked on backend services during internship at CrystalTech and is comfortable with REST APIs, SQL/NoSQL databases, and SDLC workflows.'",
+  "summary": "2-3 lines in implied first-person tone — honest, specific to the candidate's actual stack, early-career but confident.",
   "experience": [{{
     "title": "...", "company": "...", "location": "...",
     "start_date": "Mon YYYY", "end_date": "Mon YYYY or Present",
-    "bullets": ["Designed and built **3 REST API** endpoints in **Express.js** for user authentication, reducing login latency by removing redundant DB calls", "**Node.js** background job to process and cache report data, used by the React dashboard for real-time display", "..."]
+    "bullets": [...]
   }}],
   "education": [{{
     "degree": "...", "institution": "...", "location": "...",
     "graduation_year": "YYYY", "gpa": "...", "honors": "..."
   }}],
-  "skills": {{"languages": ["**Python**", "JavaScript"], "frameworks": ["**React**", "Django", "Express.js"], "databases": ["**MongoDB**", "PostgreSQL"], "tools": ["**AWS**", "Docker", "Git"], "concepts": ["REST API", "Agile/SCRUM", "OOP"]}},
+  "skills": {{"Languages": [...], "Frameworks": [...], "Databases": [...], "Tools": [...], "Concepts": [...]}},
   "certifications": [{{"name": "...", "issuer": "...", "year": "..."}}],
   "projects": [{{
-    "name": "...", "description": "Full-stack task manager with **JWT-protected** REST endpoints and role-based access for three user levels.\nRelational schema designed from scratch; queries optimised to avoid N+1 fetches on the dashboard feed.\nDeployed with environment-based config and production build; structured for easy local setup and CI pipeline.", "tech_stack": ["React.js", "Node.js", "Express.js", "MySQL", "JWT", "Render", "Git"], "link": "...", "live_link": "..."
+    "name": "...", "description": "...", "tech_stack": [...], "link": "...", "live_link": "..."
   }}]
 }}
 Leave fields as "" or [] if the original has no data. Never invent companies or credentials."""
 
-ATS_IMPROVE_SYSTEM = """You are an ATS optimization specialist and software engineering resume editor.
-Your goal: improve keyword coverage, project clarity, and bullet quality WITHOUT making the resume sound fake or robotic.
-
-CRITICAL RULES:
-- DO NOT add new experiences or projects — only rewrite existing ones
-- Integrate missing keywords by replacing weaker words in existing bullets
-- Keep the same page budget: max 3 experiences, 3 bullets each, 2-3 projects
-- Keep bullets concise, polished, and one-page friendly
-- Use professional but human language — if a bullet sounds like corporate jargon, rewrite it
-- Vary bullet openers: some start with an action verb, some with a technology name, some with context. Never start every bullet the same way.
-- Each bullet must describe a specific task — not a generic responsibility. Avoid "collaborated using Git" or "participated in Agile". Write the actual task.
-- Extract and name specific libraries, packages, and platforms from the original input. Specificity sounds human and genuine.
-- NEVER use overused buzzwords: spearheaded, orchestrated, synergized, revolutionized, pioneered, championed, leveraged, utilized.
-- Write full phrases before abbreviations: "Amazon Web Services (AWS)"
-- Weave keywords into the most natural section, and only repeat the strongest few across a second section when it reads cleanly.
-- Do NOT fabricate anything
-- Keep **bold** emphasis on metrics, tech names, and JD keywords (2-3 per bullet)
-- Improve project descriptions with what was built, features, architecture, and outcomes — NOT by repeating tech names already listed in the tech_stack array. Bullets describe behaviour and results; tech_stack lists the tools.
-- Preserve truthful technologies, education, experience, projects, and professional identity
-- Keep the resume visually balanced and suitable for one A4 page
-- Order technical skills so the most job-relevant ones come first; primary languages before frameworks, frameworks before tools.
-
-SKILLS SECTION — DO NOT POLLUTE:
-- Organize skills using exactly these 5 JSON categories:
-  languages  = Programming languages only (Python, JavaScript, Java, etc.)
-  frameworks = Frameworks, libraries, runtimes (React, Django, Express.js, Node.js, etc.)
-  databases  = Database systems only (MySQL, PostgreSQL, MongoDB, etc.)
-  tools      = Dev tools, platforms, cloud, DevOps, CI/CD (Git, Docker, AWS, etc.)
-  concepts   = Named methodologies and patterns ONLY (REST API, Agile/SCRUM, OOP, MVC, SDLC, JWT, CI/CD)
-- Only add REAL technology names or named methodologies to skills.
-- STRICT BAN — NEVER add these as skills under any circumstances:
-  "problem-solving", "analytical skills", "team collaboration", "communication",
-  "testing", "unit test", "integration test", "automated testing",
-  "best practices", "best development practices", "digital transformation",
-  "enterprise software services", "cloud engineering services", "mobility solutions",
-  "web and server-side programming", "session management", "HTTP", "JSON",
-  "extensibility", "reusable components", "front-end", "back-end", "web development",
-  "software development", "cloud infrastructure", "modern technologies", "technical tools".
-- If a missing keyword is a soft skill or generic term, weave it into a bullet sentence — NEVER put it in skills.
-- Max per category: languages 6, frameworks 6, databases 4, tools 6, concepts 5. Keep it SHORT.
-
-- Return ONLY valid JSON"""
+ATS_IMPROVE_SYSTEM = BASE_SYSTEM_INSTRUCTIONS + "\n\nFocus on improving ATS keyword coverage by naturally integrating missing keywords."
 
 ATS_IMPROVE_PROMPT = """Your goal: improve ATS coverage by integrating the missing keywords naturally without turning the resume into a keyword wall.
 
 MISSING KEYWORDS — integrate each one only when it fits naturally and truthfully:
 {missing_keywords}
 
-KEYWORD DENSITY TARGETS from job analysis (cover these naturally, but avoid repeating them in every section):
+KEYWORD DENSITY TARGETS:
 {density_targets}
-
-MANDATORY COVERAGE CHECKLIST:
-- Every keyword in the missing list should appear somewhere in the final resume if it can be added truthfully and naturally.
-- Priority keywords may appear in one strong section instead of being repeated in every section.
-- Use exact JD phrasing — ATS matches exact strings. Do not substitute synonyms for keywords.
-- Integrate naturally into existing bullets by replacing weaker words — do not create keyword dumps.
-- Add ADJACENT IMPLIED SKILLS that are missing but realistically held by the candidate:
-  * React/Vue/Angular → HTML, CSS, JavaScript (if not listed)
-  * Any backend dev → REST API, HTTP, JSON (if not listed)
-  * Python dev → OOP, scripting (if not listed)
-  * GitHub user → Git, version control (if not listed)
-  * SQL user → SQL, relational database (if not listed)
-  * NoSQL user → NoSQL, document database (if not listed)
-  Add these to the skills section only if they are genuinely related to the candidate's existing stack.
-- Fill each project's tech_stack array with the core stack only. Do not pad it with every adjacent tool or repeat technologies already obvious from the description.
 
 CURRENT RESUME (JSON):
 {resume}
@@ -393,10 +281,8 @@ CURRENT RESUME (JSON):
 JOB ANALYSIS:
 {job_analysis}
 
-ORIGINAL JOB DESCRIPTION:
-{jd}
-
-Return the improved resume with the EXACT same JSON shape."""
+Return the improved resume with the EXACT same JSON shape including the 5 skills categories:
+{{"personal_info": ..., "summary": ..., "experience": ..., "education": ..., "skills": {{"Languages": [...], "Frameworks": [...], "Databases": [...], "Tools": [...], "Concepts": [...]}}, "certifications": ..., "projects": ...}}"""
 
 COVER_LETTER_SYSTEM = """You write cover letters for fresh graduates and early-career developers.
 Your letters are SHORT, real, and specific. A recruiter reads one in 20 seconds and thinks "this person fits."
@@ -435,8 +321,8 @@ Skills: {skills}
 JOB REQUIREMENTS (from JD analysis — map resume work to these):
 {job_analysis}
 
-JD TEXT (use exact phrasing where it fits naturally):
-{jd}
+TEMPLATE GUIDANCE (align writing style and tone with these examples):
+{rag_context}
 
 CHECKLIST before returning:
 [ ] Exactly 3 paragraphs
@@ -476,6 +362,9 @@ EXPERIENCE/PROJECT SUMMARY: {experience_projects}
 JOB DESCRIPTION SUMMARY:
 {job_analysis}
 
+COMMUNICATION PATTERNS (align tone and style with these best practices):
+{rag_context}
+
 Return JSON with this exact shape:
 {{
   "subject_line": "...",
@@ -485,18 +374,40 @@ Return JSON with this exact shape:
 
 # ── Post-processing ───────────────────────────────────────────────────────────
 
-# Generic filler words that should never appear as standalone skills
+# Hard ban list — anything matching these strings is stripped from skills regardless of AI output
 _BANNED_SKILLS = {
+    # Generic filler phrases
     "modern technologies", "technical tools", "systems", "products", "projects",
     "requirements", "practices", "overview", "software development",
     "cloud infrastructure", "best practices", "development tools",
     "web development", "application development", "cross-functional",
     "agile development", "nosql database", "modern", "technologies",
-    "technical", "tools", "development", "infrastructure", "scalable",
+    "technical", "development", "infrastructure", "scalable",
     "performance", "speed", "building", "extensive", "advanced",
     "professional", "strong", "excellent", "proven", "hands-on",
     "experience", "knowledge", "understanding", "proficiency",
     "expertise", "proficient", "familiar", "skilled",
+    # Soft skills / personality traits — belong in interviews, not skills sections
+    "problem-solving", "problem solving", "analytical skills", "analytical thinking",
+    "team collaboration", "collaboration", "communication", "communication skills",
+    "interpersonal skills", "leadership", "teamwork", "time management",
+    "critical thinking", "attention to detail", "adaptability", "creativity",
+    "work ethic", "self-motivated", "self motivated", "quick learner",
+    "fast learner", "detail-oriented", "detail oriented", "proactive",
+    "multitasking", "organizational skills", "presentation skills",
+    # Testing generics (should be specific: "Jest", "Pytest", not generic "testing")
+    "testing", "unit testing", "integration testing", "automated testing",
+    "unit test", "integration test", "test automation", "testing frameworks",
+    "quality assurance",
+    # Generic web/programming concepts that aren't skills
+    "http", "json", "xml", "front-end", "back-end", "frontend", "backend",
+    "full-stack", "fullstack", "server-side programming", "web and server-side programming",
+    "client-side", "server-side", "web programming", "web applications",
+    # Business / management jargon
+    "digital transformation", "enterprise software", "enterprise software services",
+    "cloud engineering services", "mobility solutions", "cloud services",
+    "session management", "extensibility", "reusable components",
+    "best development practices", "software development lifecycle",
 }
 
 
@@ -519,8 +430,62 @@ def _trim_to_two_sentences(text: str) -> str:
     return " ".join(parts[:2]).strip()
 
 
-def _clean_resume(resume: dict) -> dict:
-    """Post-process AI output to remove filler skills and enforce formatting."""
+def _extract_original_vocab(resume_text: str) -> set:
+    """
+    Build a normalised vocabulary set from the original resume text.
+    Used to detect skills the AI invented that were never in the source.
+    """
+    text_lower = resume_text.lower()
+    raw_tokens = re.split(r'[\s,|·•\-/\(\)\[\]{}:;\n\t]+', text_lower)
+    vocab: set = set()
+    for tok in raw_tokens:
+        tok = tok.strip('.,!?"\'+_@#$%^&*=<>~`')
+        if not tok or len(tok) < 2:
+            continue
+        vocab.add(tok)
+        # Add suffix-stripped variants: react.js → react, node.js → node
+        for suffix in ('.js', '.py', '.ts', '.go', '.rb', '.rs', '.cs', '.io', '.net'):
+            if tok.endswith(suffix):
+                vocab.add(tok[: -len(suffix)])
+        # Add digit-stripped variant: python3 → python, node18 → node
+        base = re.sub(r'\d+', '', tok).strip()
+        if base and len(base) >= 2:
+            vocab.add(base)
+    return vocab
+
+
+def _skill_in_original(skill: str, vocab: set) -> bool:
+    """
+    Return True if at least one meaningful token of `skill` is found
+    in the original resume vocabulary.
+    Short known abbreviations (AWS, SQL, …) are always allowed.
+    """
+    _ALWAYS_ALLOW = {
+        "aws", "gcp", "sql", "git", "api", "jwt", "css", "html",
+        "php", "ios", "k8s", "ci", "cd", "ai", "ml", "dl", "nlp",
+        "c++", "c#", "r", "go", "vue", "rds", "sas", "orm",
+    }
+    skill_lower = skill.lower()
+    tokens = re.split(r'[\s,\-/\.\(\)\+&]+', skill_lower)
+    for tok in tokens:
+        tok = tok.strip()
+        if not tok or len(tok) < 2:
+            continue
+        if tok in _ALWAYS_ALLOW:
+            return True
+        if tok in vocab:
+            return True
+        base = re.sub(r'\d+', '', tok).strip()
+        if base and len(base) >= 2 and base in vocab:
+            return True
+    return False
+
+
+def _clean_resume(resume: dict, original_text: str | None = None) -> dict:
+    """Post-process AI output to remove filler skills and enforce formatting.
+    When `original_text` is supplied, skills not found in the source resume
+    are removed to prevent the AI from hallucinating technologies.
+    """
     if isinstance(resume.get("summary"), str):
         resume["summary"] = _trim_to_two_sentences(resume["summary"])
 
@@ -528,27 +493,45 @@ def _clean_resume(resume: dict) -> dict:
     if isinstance(skills, dict):
         # Support both old 3-category schema (technical/tools/soft) and new 5-category schema
         categories = ("languages", "frameworks", "databases", "tools", "concepts")
-        # Migrate old schema if AI still returns technical/soft
-        if "technical" in skills and "languages" not in skills:
-            skills["languages"] = skills.pop("technical", [])
-        if "soft" in skills and "concepts" not in skills:
-            skills["concepts"] = skills.pop("soft", [])
+        # Map invalid AI categories to the correct 5-category schema
+        category_map = {
+            "technical": "languages",
+            "soft": "concepts",
+            "frontend": "frameworks",
+            "backend": "frameworks",
+            "infra": "tools",
+            "infrastructure": "tools",
+            "cloud": "tools",
+            "cloud & devops": "tools",
+            "devops": "tools",
+        }
+        
+        # Lowercase keys and apply mapping
+        normalized_skills = {}
+        for k, v in list(skills.items()):
+            low_k = k.lower().strip()
+            mapped_k = category_map.get(low_k, low_k)
+            if mapped_k not in normalized_skills:
+                normalized_skills[mapped_k] = []
+            normalized_skills[mapped_k].extend(v if isinstance(v, list) else [])
+
+        skills = normalized_skills
 
         for category in categories:
             items = skills.get(category, [])
             if isinstance(items, list):
                 cleaned = []
                 for s in items:
-                    plain = s.replace("**", "").strip().lower()
-                    if plain in _BANNED_SKILLS:
+                    plain = s.replace("**", "").replace("*", "").strip()
+                    if plain.lower() in _BANNED_SKILLS:
                         continue
-                    if len(plain) <= 3 and plain not in {
+                    if len(plain) <= 3 and plain.lower() not in {
                         "aws", "gcp", "sql", "git", "c++", "c#", "r", "go",
                         "vue", "ci", "cd", "qa", "ai", "ml", "dl", "nlp",
-                        "css", "php", "ios", "api", "k8s", "sas", "rds",
+                        "css", "php", "ios", "api", "k8s", "sas", "rds", "jwt",
                     }:
                         continue
-                    cleaned.append(s)
+                    cleaned.append(plain)
                 limits = {
                     "languages": 6,
                     "frameworks": 6,
@@ -557,20 +540,52 @@ def _clean_resume(resume: dict) -> dict:
                     "concepts": 5,
                 }
                 skills[category] = _dedupe_keep_order(cleaned)[:limits[category]]
-        resume["skills"] = skills
+        
+        # Remove any extra categories that don't belong
+        resume["skills"] = {k: skills[k] for k in categories if k in skills}
 
-    # Trim experience bullets to max 3 per job
+        # ── Hallucination guard ──────────────────────────────────────────────
+        # Remove any skill that has zero tokens matching the original resume.
+        # This prevents the AI from injecting Redis, Docker, AWS, etc when the
+        # candidate never mentioned them.
+        if original_text:
+            vocab = _extract_original_vocab(original_text)
+            for cat in categories:
+                items = resume["skills"].get(cat, [])
+                if isinstance(items, list):
+                    filtered = [s for s in items if _skill_in_original(s, vocab)]
+                    # Keep at least something — fall back to original if all filtered
+                    resume["skills"][cat] = filtered if filtered else items
+
+    # Trim experience bullets to max 3 per job and remove markdown
     for exp in resume.get("experience", []):
         if isinstance(exp, dict) and isinstance(exp.get("bullets"), list):
-            exp["bullets"] = exp["bullets"][:3]
+            exp["bullets"] = [b.replace("**", "").replace("*", "").strip() for b in exp["bullets"][:3]]
 
-    # Keep projects compact and avoid repeated tech stacks
+    # Tech stack pollution filter — strip generic/concept words from project tech stacks
+    _BANNED_TECH_STACK = {
+        "testing", "unit test", "unit testing", "integration test", "integration testing",
+        "automated testing", "web development", "front-end", "back-end", "frontend", "backend",
+        "http", "json", "xml", "mvc framework", "mvc", "rest api", "restful api",
+        "session management", "extensibility", "reusable components", "best practices",
+        "digital transformation", "cloud engineering", "web applications", "web app",
+        "problem-solving", "collaboration", "agile", "scrum", "sdlc",
+    }
+
+    # Keep projects compact and remove markdown
     for proj in resume.get("projects", []):
         if not isinstance(proj, dict):
             continue
         if isinstance(proj.get("tech_stack"), list):
-            proj["tech_stack"] = _dedupe_keep_order(proj["tech_stack"])[:6]
+            cleaned_stack = []
+            for t in proj["tech_stack"]:
+                plain = t.replace("**", "").replace("*", "").strip()
+                if plain.lower() not in _BANNED_TECH_STACK:
+                    cleaned_stack.append(plain)
+            proj["tech_stack"] = _dedupe_keep_order(cleaned_stack)[:8]
         desc = proj.get("description")
+        if isinstance(desc, list):
+            proj["description"] = [d.replace("**", "").replace("*", "").strip() for d in desc[:3]]
         if isinstance(desc, str):
             lines = [line.strip() for line in desc.splitlines() if line.strip()]
             proj["description"] = "\n".join(lines[:3])
@@ -606,7 +621,7 @@ def analyse_job_description(jd_text: str, model_id: str | None = None) -> dict:
         max_tokens=1200,
         response_format={"type": "json_object"},
     )
-    return json.loads(response.choices[0].message.content)
+    return _parse_json_response(response.choices[0].message.content)
 
 
 @_safe_call
@@ -616,15 +631,17 @@ def rewrite_resume(
     job_analysis: dict,
     model_id: str | None = None,
     missing_keywords: list[str] | None = None,
+    extra_context: str | None = None,
 ) -> dict:
     """Rewrite a resume for a job. If missing_keywords are provided (from pre-analysis),
     they are injected directly into the prompt so the model knows exactly what to cover
-    on the FIRST pass — dramatically improving first-pass ATS score."""
+    on the FIRST pass — dramatically improving first-pass ATS score.
+    extra_context: optional block from the learning store (past winning examples)."""
     client, model = _get_client(model_id)
 
     # Build keyword injection block for first-pass targeting
     if missing_keywords:
-        top_kw = missing_keywords[:20]  # top 20 most important missing keywords
+        top_kw = missing_keywords[:20]
         keyword_injection = (
             "MANDATORY KEYWORD CHECKLIST — these specific terms should be covered where they fit naturally in the final resume "
             "(weave them into summary, bullets, and skills only when it reads cleanly — do NOT list them as a dump):\n"
@@ -633,16 +650,20 @@ def rewrite_resume(
     else:
         keyword_injection = ""
 
+    # Prepend real winning examples as style context (compounding learning loop)
+    system_prompt = REWRITE_SYSTEM
+    if extra_context:
+        system_prompt = extra_context + "\n\n" + REWRITE_SYSTEM
+
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": REWRITE_SYSTEM},
+            {"role": "system", "content": system_prompt},
             {
                 "role": "user",
                 "content": REWRITE_PROMPT.format(
                     resume=resume_text,
                     job_analysis=json.dumps(job_analysis),
-                    jd=jd_text,
                     keyword_injection=keyword_injection,
                 ),
             },
@@ -651,8 +672,9 @@ def rewrite_resume(
         max_tokens=3000,
         response_format={"type": "json_object"},
     )
-    result = json.loads(response.choices[0].message.content)
-    return _clean_resume(result)
+    result = _parse_json_response(response.choices[0].message.content)
+    # Pass original resume_text so hallucinated skills can be filtered out
+    return _clean_resume(result, original_text=resume_text)
 
 
 @_safe_call
@@ -676,7 +698,6 @@ def improve_resume_for_ats(
                     density_targets=", ".join(density_targets) or "(see job_analysis)",
                     resume=json.dumps(resume),
                     job_analysis=json.dumps(job_analysis),
-                    jd=jd_text,
                 ),
             },
         ],
@@ -684,7 +705,7 @@ def improve_resume_for_ats(
         max_tokens=2000,    # reduced from 3000 — patch pass needs less output space than full rewrite
         response_format={"type": "json_object"},
     )
-    result = json.loads(response.choices[0].message.content)
+    result = _parse_json_response(response.choices[0].message.content)
     return _clean_resume(result)
 
 
@@ -694,6 +715,7 @@ def generate_cover_letter(
     job_analysis: dict,
     jd_text: str = "",
     model_id: str | None = None,
+    rag_context: str = "",
 ) -> dict:
     client, model = _get_client(model_id)
     personal = tailored_resume.get("personal_info", {})
@@ -747,7 +769,7 @@ def generate_cover_letter(
                     projects=projects,
                     skills=top_skills,
                     job_analysis=json.dumps(job_analysis),
-                    jd=jd_text or "(not provided)",
+                    rag_context=rag_context or "(none)",
                 ),
             },
         ],
@@ -755,7 +777,7 @@ def generate_cover_letter(
         max_tokens=500,
         response_format={"type": "json_object"},
     )
-    return json.loads(response.choices[0].message.content)
+    return _parse_json_response(response.choices[0].message.content)
 
 @_safe_call
 def generate_application_email(
@@ -763,6 +785,7 @@ def generate_application_email(
     job_analysis: dict,
     jd_text: str = "",
     model_id: str | None = None,
+    rag_context: str = "",
 ) -> dict:
     client, model = _get_client(model_id)
     personal = tailored_resume.get("personal_info", {})
@@ -801,6 +824,7 @@ def generate_application_email(
                     skills=top_skills,
                     experience_projects=experience_projects,
                     job_analysis=json.dumps(job_analysis),
+                    rag_context=rag_context or "(none)",
                 ),
             },
         ],
@@ -808,7 +832,7 @@ def generate_application_email(
         max_tokens=300,
         response_format={"type": "json_object"},
     )
-    return json.loads(response.choices[0].message.content)
+    return _parse_json_response(response.choices[0].message.content)
 
 @_safe_call
 def suggest_job_search_params(resume_text: str, model_id: str | None = None) -> dict:
@@ -823,7 +847,7 @@ def suggest_job_search_params(resume_text: str, model_id: str | None = None) -> 
         temperature=0.3,
         response_format={"type": "json_object"},
     )
-    return json.loads(response.choices[0].message.content)
+    return _parse_json_response(response.choices[0].message.content)
 
 
 # ── Agentic AI functions (GLM/Qwen only) ─────────────────────────────────────
@@ -942,36 +966,8 @@ def plan_analysis(
         max_tokens=600,
         response_format={"type": "json_object"},
     )
-    return json.loads(response.choices[0].message.content)
+    return _parse_json_response(response.choices[0].message.content)
 
-
-@_safe_call
-def critique_resume(
-    tailored_resume: dict,
-    missing_keywords: list[str],
-    jd_text: str,
-    model_id: str | None = None,
-) -> dict:
-    """Agent self-critique step: identify WHY keywords are still missing and how to fix them."""
-    client, model = _get_client(model_id)
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": CRITIQUE_SYSTEM},
-            {
-                "role": "user",
-                "content": CRITIQUE_PROMPT.format(
-                    missing_keywords=", ".join(missing_keywords[:20]),
-                    resume_json=json.dumps(tailored_resume)[:3000],
-                    jd_excerpt=jd_text[:800],
-                ),
-            },
-        ],
-        temperature=0.1,
-        max_tokens=1200,
-        response_format={"type": "json_object"},
-    )
-    return json.loads(response.choices[0].message.content)
 
 
 @_safe_call
@@ -1038,4 +1034,434 @@ def generate_interview_prep(
         max_tokens=2000,
         response_format={"type": "json_object"},
     )
-    return json.loads(response.choices[0].message.content)
+    return _parse_json_response(response.choices[0].message.content)
+
+
+# ── v2 Agentic functions ──────────────────────────────────────────────────────
+
+
+GAP_ANALYSIS_SYSTEM = """You are a precision resume gap analyst.
+Your ONLY job: compare a structured resume with JD requirements and identify exactly
+what is missing, where to put it, and what is already good (do not touch those).
+Return ONLY valid JSON. Be surgical — do not suggest rewriting sections that are already strong."""
+
+GAP_ANALYSIS_PROMPT = """Identify keyword and content gaps between this resume and the JD.
+
+BASELINE ATS SCORE: {ats_score}%
+MISSING KEYWORDS (from ATS scan): {missing_keywords}
+
+JOB ANALYSIS:
+{job_analysis}
+
+RESUME SECTIONS (names + brief content):
+Summary: {summary_snippet}
+Experience titles: {experience_titles}
+Skills categories: {skills_keys}
+Projects: {project_names}
+
+Return JSON:
+{{
+  "critical_gaps": ["keyword that is completely absent from resume"],
+  "quick_wins": ["keyword present in wrong section — just move it"],
+  "section_priorities": {{
+    "summary": "specific instruction or null if already strong",
+    "experience": "specific instruction or null if already strong",
+    "skills": "specific instruction or null if already strong",
+    "projects": "specific instruction or null if already strong"
+  }},
+  "unchanged_sections": ["section names that should NOT be touched — already strong"],
+  "estimated_ats_gain": "e.g. +12 points if critical gaps are filled"
+}}"""
+
+
+@_safe_call
+def gap_analysis(
+    resume_json: dict,
+    job_analysis: dict,
+    ats_score: int,
+    missing_keywords: list[str],
+    model_id: str | None = None,
+) -> dict:
+    """
+    Dedicated gap analysis agent.
+    Uses cheap model — sends only section summaries, not full resume.
+    Returns section-level instructions so the rewriter only touches what needs work.
+    """
+    client, model = _get_cheap_client(model_id)
+
+    # Build minimal section summaries — avoid sending full resume text
+    summary_snippet = str(resume_json.get("summary", ""))[:120]
+    experience_titles = " | ".join(
+        f"{e.get('title', '')} @ {e.get('company', '')}"
+        for e in resume_json.get("experience", [])[:3]
+    )
+    skills_keys = ", ".join(resume_json.get("skills", {}).keys())
+    project_names = " | ".join(
+        p.get("name", "") for p in resume_json.get("projects", [])[:3]
+    )
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": GAP_ANALYSIS_SYSTEM},
+            {
+                "role": "user",
+                "content": GAP_ANALYSIS_PROMPT.format(
+                    ats_score=ats_score,
+                    missing_keywords=", ".join(missing_keywords[:20]) or "(none)",
+                    job_analysis=json.dumps({
+                        "required_skills": job_analysis.get("required_skills", [])[:12],
+                        "must_have": job_analysis.get("must_have", [])[:8],
+                        "keyword_density_targets": job_analysis.get("keyword_density_targets", [])[:8],
+                        "rewrite_strategy": job_analysis.get("rewrite_strategy", ""),
+                    }),
+                    summary_snippet=summary_snippet,
+                    experience_titles=experience_titles,
+                    skills_keys=skills_keys,
+                    project_names=project_names,
+                ),
+            },
+        ],
+        temperature=0.1,
+        max_tokens=700,
+        response_format={"type": "json_object"},
+    )
+    return _parse_json_response(response.choices[0].message.content)
+
+
+# Section rewrite prompts — one per section type for focused, lean prompts
+_SECTION_SYSTEMS = {
+    "summary": """You rewrite ONLY the resume summary section. 2 sentences max.
+Sentence 1: who the candidate is + core stack. Sentence 2: one specific achievement or context.
+Do NOT name the target company. Keep it general and human.
+DO NOT use ANY markdown formatting (no **, no *).
+Return JSON: {"summary": "..."}""",
+
+    "experience": """You rewrite ONLY the experience section bullets.
+Highlight ownership, engineering, APIs, databases, deployments, debugging, and production practices.
+Do NOT invent companies, roles, dates, or metrics. Max 3 bullets per job.
+DO NOT use ANY markdown formatting (no **, no *). Return plain text bullets.
+Return JSON with the same experience array structure.""",
+
+    "skills": """You rewrite ONLY the skills section.
+Organize into EXACTLY 7 categories: Languages, Frontend, Backend, Databases, Cloud & DevOps, Tools, Concepts.
+Do not misclassify technologies.
+DO NOT use ANY markdown formatting.
+Return JSON: {"skills": {"Languages": [...], "Frontend": [...], "Backend": [...], "Databases": [...], "Cloud & DevOps": [...], "Tools": [...], "Concepts": [...]}}""",
+
+    "projects": """You rewrite ONLY the project descriptions.
+Improve: what problem was solved, how it was built, technologies, engineering decisions, deployment, and technical interest.
+Do NOT repeat tech_stack items in bullets. Each bullet = one specific feature/outcome.
+Do not force exactly 3 bullet points. Use as many bullets as needed. Typical range: 4–6 bullets.
+DO NOT use ANY markdown formatting (no **, no *). Return plain text bullets.
+Return JSON with the same projects array structure.""",
+}
+
+_SECTION_PROMPT = """Improve this resume section for the target role.
+
+GAP INSTRUCTIONS (apply these specifically): {gap_instructions}
+
+MISSING KEYWORDS TO INTEGRATE (MANDATORY):
+{missing_keywords}
+- IMPORTANT: You MUST weave the exact keywords listed above verbatim (using the exact same spelling and casing) into the updated section content.
+- Do not paraphrase them (e.g., if 'Kubernetes' is missing, write 'Kubernetes', do not write 'k8s' or 'container orchestration').
+- Incorporate as many missing keywords as possible where they fit naturally.
+
+RETRIEVED INDUSTRY CONTEXT (writing style reference): {rag_context}
+
+JD KEY REQUIREMENTS:
+{jd_requirements}
+
+CURRENT SECTION DATA:
+{section_data}
+
+{extra_rules}
+
+Return ONLY the section JSON. No explanation."""
+
+
+@_safe_call
+def rewrite_section(
+    section_name: str,
+    section_data,
+    job_analysis: dict,
+    gap_instructions: str,
+    missing_keywords: list[str],
+    rag_context: str = "",
+    model_id: str | None = None,
+) -> dict:
+    """
+    Rewrite a SINGLE resume section in isolation.
+    Far smaller prompt than full-resume rewrite — faster and more precise.
+    section_name: 'summary' | 'experience' | 'skills' | 'projects'
+    """
+    client, model = _get_client(model_id)  # Premium model for rewriting
+
+    system = _SECTION_SYSTEMS.get(section_name, _SECTION_SYSTEMS["projects"])
+
+    # Only include top 3 RAG chunks (compact context)
+    rag_trimmed = rag_context[:600] if rag_context else "(none)"
+
+    # Only send the most relevant JD fields
+    jd_requirements = json.dumps({
+        "required_skills": job_analysis.get("required_skills", [])[:10],
+        "keyword_density_targets": job_analysis.get("keyword_density_targets", [])[:6],
+        "rewrite_strategy": job_analysis.get("rewrite_strategy", ""),
+        "seniority": job_analysis.get("seniority", ""),
+    })
+
+    extra_rules = ""
+    if section_name == "skills":
+        extra_rules = (
+            "STRICT: Languages=programming languages only, Frontend=frontend framework/libs, Backend=backend framework/libs, "
+            "Databases=DB systems only, Cloud & DevOps=cloud/CI-CD/infra, Tools=dev tools/git, Concepts=methodologies/patterns. "
+            "Max: Languages 6, Frontend 6, Backend 6, Databases 4, Cloud & DevOps 6, Tools 6, Concepts 5."
+        )
+    elif section_name == "projects":
+        extra_rules = (
+            "STRICT: Do NOT repeat tech names from tech_stack in bullets. "
+            "Bullets describe features, architecture, and outcomes. Typical range: 4-6 bullets per project. "
+            "Max 8 items in tech_stack."
+        )
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system},
+            {
+                "role": "user",
+                "content": _SECTION_PROMPT.format(
+                    gap_instructions=gap_instructions or "Improve ATS coverage and readability.",
+                    missing_keywords=", ".join(missing_keywords[:12]) or "(none)",
+                    rag_context=rag_trimmed,
+                    jd_requirements=jd_requirements,
+                    section_data=json.dumps(section_data)[:1800],
+                    extra_rules=extra_rules,
+                ),
+            },
+        ],
+        temperature=0.2,
+        max_tokens=900,
+        response_format={"type": "json_object"},
+    )
+    result = _parse_json_response(response.choices[0].message.content)
+
+    # Post-process skills section to enforce clean categories
+    if section_name == "skills" and "skills" in result:
+        return {"skills": _clean_resume({"skills": result["skills"]})["skills"]}
+
+    return result
+
+
+HUMANIZE_SYSTEM = """You are a humanization editor for engineering resumes.
+Your ONLY job: find and fix AI-sounding, robotic, or overly corporate language.
+You do NOT rewrite content — you polish wording in the provided sections only.
+Make the writing sound like an experienced developer wrote it naturally.
+
+CHECK FOR:
+- Overused buzzwords: spearheaded, leveraged, orchestrated, synergized, championed, revolutionized
+- Repetitive bullet openers (3+ bullets starting the same way)
+- Passive voice where active reads better
+- Overly long sentences (>25 words)
+- Corporate jargon that sounds unnatural for a software engineer
+
+RULES:
+- Only modify lines that genuinely need it
+- Keep all facts, technologies, and achievements intact
+- Keep the same JSON structure
+- Return ONLY valid JSON"""
+
+HUMANIZE_PROMPT = """Review and humanize these rewritten resume sections.
+Only fix lines that sound robotic, repetitive, or AI-generated.
+
+SECTIONS TO REVIEW:
+{sections_json}
+
+Return the corrected sections with the same JSON keys."""
+
+
+@_safe_call
+def humanize_sections(
+    changed_sections: dict,
+    model_id: str | None = None,
+) -> dict:
+    """
+    Dedicated humanization pass on ONLY the sections that were rewritten.
+    Uses cheap model — this is a light editing pass, not a full rewrite.
+    changed_sections: {section_name: section_data, ...}
+    """
+    if not changed_sections:
+        return {}
+
+    client, model = _get_cheap_client(model_id)
+
+    # Compact the sections — only send what was changed
+    sections_json = json.dumps(changed_sections)[:2000]
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": HUMANIZE_SYSTEM},
+            {
+                "role": "user",
+                "content": HUMANIZE_PROMPT.format(sections_json=sections_json),
+            },
+        ],
+        temperature=0.35,
+        max_tokens=800,
+        response_format={"type": "json_object"},
+    )
+    return _parse_json_response(response.choices[0].message.content)
+
+
+LINKEDIN_MESSAGE_SYSTEM = """You write a LinkedIn connection request note.
+Hard limit: 300 characters total (LinkedIn's limit).
+Tone: professional but direct. No buzzwords. No "I am excited". No emojis.
+Mention: candidate's role/stack + the position they're applying for.
+End with a clear ask: connect, chat, or review application.
+Return ONLY valid JSON."""
+
+LINKEDIN_MESSAGE_PROMPT = """Write a LinkedIn connection note for {name} applying for {job_title}.
+
+Their stack: {top_skills}
+One key project: {top_project}
+Company type: {company_type}
+
+Return JSON: {{"message": "..."}}
+The message MUST be under 300 characters."""
+
+
+@_safe_call
+def generate_linkedin_message(
+    tailored_resume: dict,
+    job_analysis: dict,
+    model_id: str | None = None,
+) -> dict:
+    """Generate a ≤300-char LinkedIn connection request note. Uses cheap model."""
+    client, model = _get_cheap_client(model_id)
+
+    personal = tailored_resume.get("personal_info", {})
+    name = personal.get("name", "the candidate")
+    job_title = job_analysis.get("job_title", "the position")
+    company_type = job_analysis.get("company_type", "")
+
+    skills_data = tailored_resume.get("skills", {})
+    top_skills = ", ".join(
+        (skills_data.get("languages", [])[:2] + skills_data.get("frameworks", [])[:2])[:3]
+    )
+
+    projects = tailored_resume.get("projects", [])
+    top_project = projects[0].get("name", "") if projects else ""
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": LINKEDIN_MESSAGE_SYSTEM},
+            {
+                "role": "user",
+                "content": LINKEDIN_MESSAGE_PROMPT.format(
+                    name=name,
+                    job_title=job_title,
+                    top_skills=top_skills,
+                    top_project=top_project,
+                    company_type=company_type,
+                ),
+            },
+        ],
+        temperature=0.3,
+        max_tokens=120,
+        response_format={"type": "json_object"},
+    )
+    result = _parse_json_response(response.choices[0].message.content)
+    # Enforce 300-char limit
+    if isinstance(result.get("message"), str) and len(result["message"]) > 300:
+        result["message"] = result["message"][:297] + "..."
+    return result
+
+
+RECRUITER_TIPS_SYSTEM = """You generate 5–7 actionable, role-specific recruiter preparation tips
+for a candidate about to apply to a specific job.
+
+Each tip must be:
+- Specific to this candidate's background and this job
+- Practical and immediately actionable
+- Under 2 sentences
+
+Topics to cover (pick the most relevant 5–7):
+- What to emphasize in a phone screen
+- How to frame a gap or weakness
+- One question to ask the hiring manager
+- Salary negotiation hint based on seniority
+- Which project to lead with in interviews
+- ATS keyword tip for this role
+- How to stand out among other applicants
+
+Return ONLY valid JSON."""
+
+RECRUITER_TIPS_PROMPT = """Generate recruiter tips for {name} applying for {job_title} ({seniority} level).
+
+Their strongest asset: {top_asset}
+Key matching skills: {matched_skills}
+Main gap vs JD: {main_gap}
+ATS score: {ats_score}%
+
+Return JSON: {{"tips": ["tip 1", "tip 2", ...]}}"""
+
+
+@_safe_call
+def generate_recruiter_tips(
+    tailored_resume: dict,
+    job_analysis: dict,
+    ats_score: int = 0,
+    missing_keywords: list[str] | None = None,
+    model_id: str | None = None,
+) -> dict:
+    """Generate 5–7 role-specific recruiter tips. Uses cheap model."""
+    client, model = _get_cheap_client(model_id)
+
+    personal = tailored_resume.get("personal_info", {})
+    name = personal.get("name", "the candidate")
+    job_title = job_analysis.get("job_title", "the position")
+    seniority = job_analysis.get("seniority", "junior")
+
+    # Top asset = strongest project or most recent role
+    projects = tailored_resume.get("projects", [])
+    experience = tailored_resume.get("experience", [])
+    top_asset = (
+        projects[0].get("name", "") if projects
+        else (f"{experience[0].get('title', '')} at {experience[0].get('company', '')}" if experience else "their projects")
+    )
+
+    # Matched skills = intersection of resume skills and JD required
+    skills_data = tailored_resume.get("skills", {})
+    all_skills = set(
+        s.replace("**", "").lower()
+        for cat in skills_data.values() if isinstance(cat, list)
+        for s in cat
+    )
+    required = job_analysis.get("required_skills", [])
+    matched_skills = ", ".join([s for s in required[:6] if s.lower() in all_skills]) or "core stack"
+    main_gap = (missing_keywords or [])[0] if missing_keywords else "none identified"
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": RECRUITER_TIPS_SYSTEM},
+            {
+                "role": "user",
+                "content": RECRUITER_TIPS_PROMPT.format(
+                    name=name,
+                    job_title=job_title,
+                    seniority=seniority,
+                    top_asset=top_asset,
+                    matched_skills=matched_skills,
+                    main_gap=main_gap,
+                    ats_score=ats_score,
+                ),
+            },
+        ],
+        temperature=0.4,
+        max_tokens=600,
+        response_format={"type": "json_object"},
+    )
+    return _parse_json_response(response.choices[0].message.content)

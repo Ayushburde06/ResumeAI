@@ -99,7 +99,22 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
     return _append_links(base_text, urls)
 
 
+_DOCX_UNCOMPRESSED_LIMIT = 50 * 1024 * 1024  # 50 MB uncompressed — ZIP bomb guard
+
 def extract_text_from_docx(file_bytes: bytes) -> str:
+    import zipfile
+    # ZIP bomb protection: check total uncompressed size before extracting
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
+            total_uncompressed = sum(info.file_size for info in zf.infolist())
+            if total_uncompressed > _DOCX_UNCOMPRESSED_LIMIT:
+                raise ValueError(
+                    f"DOCX uncompressed content exceeds {_DOCX_UNCOMPRESSED_LIMIT // 1024 // 1024} MB — "
+                    "file rejected."
+                )
+    except zipfile.BadZipFile:
+        raise ValueError("File is not a valid DOCX (corrupt ZIP archive).")
+
     doc = Document(io.BytesIO(file_bytes))
     paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
     for table in doc.tables:

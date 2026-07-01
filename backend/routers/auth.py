@@ -83,7 +83,11 @@ def get_current_user(
     payload = decode_token(token)
     if not payload:
         return None
-    user = db.query(User).filter(User.id == int(payload["sub"])).first()
+    try:
+        user_id = int(payload["sub"])
+    except (KeyError, ValueError, TypeError):
+        return None
+    user = db.query(User).filter(User.id == user_id).first()
     return user
 
 
@@ -103,8 +107,10 @@ def register(request: Request, body: RegisterRequest, db: Session = Depends(get_
         raise HTTPException(status_code=400, detail="Full name is required.")
     if len(name) > 100:
         raise HTTPException(status_code=400, detail="Name must be 100 characters or fewer.")
-    if len(body.password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    if len(body.password) > 128:
+        raise HTTPException(status_code=400, detail="Password must be 128 characters or fewer.")
     if db.query(User).filter(User.email == body.email).first():
         raise HTTPException(status_code=400, detail="An account with this email already exists.")
 
@@ -170,7 +176,8 @@ def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/me")
-def me(user: User = Depends(require_user), db: Session = Depends(get_db)):
+@limiter.limit("60/minute")
+def me(request: Request, user: User = Depends(require_user), db: Session = Depends(get_db)):
     if _is_admin(user.email):
         stats = _ensure_premium(user.id, db)
     else:

@@ -1,39 +1,50 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Upload, FileText, X, Loader2 } from 'lucide-react'
+import { Upload, FileText, X, Loader2, Mail, ChevronDown, ChevronUp, Mic, MessageSquare, Link as LinkIcon, Lightbulb, Target, ThumbsUp, ThumbsDown } from 'lucide-react'
 import { useDropzone } from 'react-dropzone'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
-import type { AnalyzeResponse, ModelInfo } from '../types'
+import type { AgentAnalyzeResult, ModelInfo, InterviewPrep } from '../types'
 import ResumePreview from './ResumePreview'
 import ATSScore from './ATSScore'
 import ModelSelector from './ModelSelector'
-import { fetchModels, improveAtsScore } from '../lib/api'
+import { fetchModels, improveAtsScore, submitFeedback } from '../lib/api'
+import { useAuth } from '../context/AuthContext'
+
+const MAX_FILE_SIZE_MB = 10
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 
 interface UnifiedWorkspaceProps {
   initialFile?: File | null
   initialJd?: string
-  initialResult?: AnalyzeResponse | null
-  onAnalyze: (file: File, jd: string, modelId?: string) => Promise<AnalyzeResponse>
+  initialResult?: AgentAnalyzeResult | null
+  initialInterviewPrep?: InterviewPrep | null
+  onAnalyze: (file: File, jd: string, modelId?: string) => Promise<AgentAnalyzeResult>
 }
 
 export default function UnifiedWorkspace({
   initialFile = null,
   initialJd = '',
   initialResult = null,
+  initialInterviewPrep = null,
   onAnalyze,
 }: UnifiedWorkspaceProps) {
   const navigate = useNavigate()
+  const { refreshUser } = useAuth()
   const [file, setFile] = useState<File | null>(initialFile)
   const [jd, setJd] = useState(initialJd)
   const [jdMode, setJdMode] = useState<'paste' | 'search'>('paste')
-  const [result, setResult] = useState<AnalyzeResponse | null>(initialResult)
+  const [result, setResult] = useState<AgentAnalyzeResult | null>(initialResult)
   const [loading, setLoading] = useState(false)
   const [optimizingAts, setOptimizingAts] = useState(false)
   const [models, setModels] = useState<ModelInfo[]>([])
   const [selectedModel, setSelectedModel] = useState('')
+  const [openPanel, setOpenPanel] = useState<string | null>(null)
+  const [feedbackRating, setFeedbackRating] = useState<'up' | 'down' | null>(null)
+  const [feedbackSaving, setFeedbackSaving] = useState(false)
+  const interviewPrep = initialInterviewPrep
   const qualityReport = result?.quality_report
   const hasQualityScores = !!qualityReport && (
     typeof qualityReport.humanization_score === 'number' ||
@@ -62,9 +73,28 @@ export default function UnifiedWorkspace({
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
     },
     maxFiles: 1,
-    onDrop: (acceptedFiles) => {
+    maxSize: MAX_FILE_SIZE_BYTES,
+    onDrop: (acceptedFiles, rejectedFiles) => {
+      if (rejectedFiles.length > 0) {
+        const rejection = rejectedFiles[0]
+        const isTooLarge = rejection.errors.some((e) => e.code === 'file-too-large')
+        const isWrongType = rejection.errors.some((e) => e.code === 'file-invalid-type')
+        if (isTooLarge) {
+          toast.error(`File is too large. Maximum size is ${MAX_FILE_SIZE_MB} MB.`)
+        } else if (isWrongType) {
+          toast.error('Unsupported file type. Please upload a PDF or DOCX file.')
+        } else {
+          toast.error('File rejected. Please upload a valid PDF or DOCX under 10 MB.')
+        }
+        return
+      }
       if (acceptedFiles.length > 0) {
-        setFile(acceptedFiles[0])
+        const f = acceptedFiles[0]
+        if (f.size > MAX_FILE_SIZE_BYTES) {
+          toast.error(`File is too large. Maximum size is ${MAX_FILE_SIZE_MB} MB.`)
+          return
+        }
+        setFile(f)
       }
     }
   })
@@ -79,11 +109,18 @@ export default function UnifiedWorkspace({
 
   const handleTailor = async () => {
     if (!file || jd.trim().length < 50) return
+    // Client-side file size guard before hitting the server
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      toast.error(`File is too large. Maximum size is ${MAX_FILE_SIZE_MB} MB.`)
+      return
+    }
     setLoading(true)
     try {
       const res = await onAnalyze(file, jd, selectedModel || undefined)
       setResult(res)
       toast.success('Resume tailored successfully!')
+      // Refresh quota badge immediately so counter stays accurate
+      await refreshUser()
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to tailor resume')
     } finally {
@@ -244,16 +281,18 @@ export default function UnifiedWorkspace({
             </Button>
 
             <Tooltip>
-              <TooltipTrigger>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  className="w-full h-11 rounded-2xl border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
-                  onClick={() => navigate('/agent')}
-                >
-                  Optimize with AI Agent
-                </Button>
-              </TooltipTrigger>
+              <TooltipTrigger 
+                render={
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    className="w-full h-11 rounded-2xl border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                    onClick={() => navigate('/agent')}
+                  >
+                    Optimize with AI Agent
+                  </Button>
+                }
+              />
               <TooltipContent>
                 Uses multi-agent reasoning and knowledge retrieval for deeper optimization.
               </TooltipContent>
@@ -293,6 +332,49 @@ export default function UnifiedWorkspace({
                 improving={optimizingAts}
                 autoImproved={result.auto_improved}
               />
+
+              {/* ── Match Analysis ── */}
+              {result.match_analysis && (
+                <div className="panel p-5 space-y-4">
+                  <div className="flex items-center gap-2.5 mb-2">
+                    <Target className="w-4 h-4 text-brand" />
+                    <h3 className="text-base font-semibold text-zinc-950">Match Analysis</h3>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl border border-zinc-200 bg-white p-4">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500 mb-2">Candidate Strengths</p>
+                      <ul className="space-y-1">
+                        {result.match_analysis.candidate_strengths?.map((s: string, i: number) => (
+                          <li key={i} className="flex gap-2 text-sm text-zinc-700">
+                            <span className="mt-2 h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+                            {s}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="rounded-xl border border-zinc-200 bg-white p-4">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500 mb-2">Unmet Requirements</p>
+                      <ul className="space-y-1">
+                        {result.match_analysis.unmet_requirements?.map((req: string, i: number) => (
+                          <li key={i} className="flex gap-2 text-sm text-zinc-700">
+                            <span className="mt-2 h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                            {req}
+                          </li>
+                        ))}
+                        {!result.match_analysis.unmet_requirements?.length && (
+                          <li className="text-sm text-zinc-500 italic">No significant gaps found.</li>
+                        )}
+                      </ul>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                    <p className="text-sm font-medium text-zinc-800 flex gap-2 items-center">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Verdict</span>
+                      {result.match_analysis.fit_verdict}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {qualityReport && (
                 <div className="panel p-5 space-y-4">
@@ -376,6 +458,296 @@ export default function UnifiedWorkspace({
                 atsScore={result.ats_score}
                 onResumeChange={(updated) => setResult({...result, tailored_resume: updated})} 
               />
+
+              {/* ── Cover Letter ── */}
+              {result.cover_letter?.body && (
+                <div className="panel overflow-hidden">
+                  <button
+                    className="w-full flex items-center justify-between gap-3 p-5 text-left hover:bg-zinc-50/60 transition-colors"
+                    onClick={() => setOpenPanel(openPanel === 'cover_letter' ? null : 'cover_letter')}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <MessageSquare className="w-4 h-4 text-brand" />
+                      <div>
+                        <p className="section-title mb-0.5">Agent Generated</p>
+                        <h3 className="text-base font-semibold text-zinc-950">Cover Letter</h3>
+                      </div>
+                    </div>
+                    {openPanel === 'cover_letter' ? <ChevronUp className="w-4 h-4 text-zinc-400" /> : <ChevronDown className="w-4 h-4 text-zinc-400" />}
+                  </button>
+                  {openPanel === 'cover_letter' && (
+                    <div className="px-5 pb-5 space-y-3">
+                      {result.cover_letter.subject_line && (
+                        <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2.5">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-400 mb-1">Subject</p>
+                          <p className="text-sm font-medium text-zinc-800">{result.cover_letter.subject_line}</p>
+                        </div>
+                      )}
+                      <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3">
+                        <p className="text-sm text-zinc-700 whitespace-pre-wrap leading-7">{result.cover_letter.body}</p>
+                      </div>
+                      <button
+                        className="text-xs text-brand hover:text-brand-hover font-medium transition-colors"
+                        onClick={() => {
+                          navigator.clipboard.writeText(
+                            (result.cover_letter.subject_line ? `Subject: ${result.cover_letter.subject_line}\n\n` : '') + result.cover_letter.body
+                          )
+                          toast.success('Cover letter copied!')
+                        }}
+                      >
+                        Copy to clipboard
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Application Email ── */}
+              {result.application_email?.body && (
+                <div className="panel overflow-hidden">
+                  <button
+                    className="w-full flex items-center justify-between gap-3 p-5 text-left hover:bg-zinc-50/60 transition-colors"
+                    onClick={() => setOpenPanel(openPanel === 'app_email' ? null : 'app_email')}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Mail className="w-4 h-4 text-brand" />
+                      <div>
+                        <p className="section-title mb-0.5">Agent Generated</p>
+                        <h3 className="text-base font-semibold text-zinc-950">Application Email</h3>
+                      </div>
+                    </div>
+                    {openPanel === 'app_email' ? <ChevronUp className="w-4 h-4 text-zinc-400" /> : <ChevronDown className="w-4 h-4 text-zinc-400" />}
+                  </button>
+                  {openPanel === 'app_email' && (
+                    <div className="px-5 pb-5 space-y-3">
+                      {result.application_email.subject_line && (
+                        <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2.5">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-400 mb-1">Subject</p>
+                          <p className="text-sm font-medium text-zinc-800">{result.application_email.subject_line}</p>
+                        </div>
+                      )}
+                      <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3">
+                        <p className="text-sm text-zinc-700 whitespace-pre-wrap leading-7">{result.application_email.body}</p>
+                      </div>
+                      <button
+                        className="text-xs text-brand hover:text-brand-hover font-medium transition-colors"
+                        onClick={() => {
+                          navigator.clipboard.writeText(
+                            (result.application_email.subject_line ? `Subject: ${result.application_email.subject_line}\n\n` : '') + result.application_email.body
+                          )
+                          toast.success('Email copied!')
+                        }}
+                      >
+                        Copy to clipboard
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Interview Prep ── */}
+              {interviewPrep && (
+                <div className="panel overflow-hidden">
+                  <button
+                    className="w-full flex items-center justify-between gap-3 p-5 text-left hover:bg-zinc-50/60 transition-colors"
+                    onClick={() => setOpenPanel(openPanel === 'interview' ? null : 'interview')}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Mic className="w-4 h-4 text-brand" />
+                      <div>
+                        <p className="section-title mb-0.5">Agent Generated</p>
+                        <h3 className="text-base font-semibold text-zinc-950">Interview Prep</h3>
+                      </div>
+                    </div>
+                    {openPanel === 'interview' ? <ChevronUp className="w-4 h-4 text-zinc-400" /> : <ChevronDown className="w-4 h-4 text-zinc-400" />}
+                  </button>
+                  {openPanel === 'interview' && (
+                    <div className="px-5 pb-5 space-y-4">
+                      {interviewPrep.likely_technical_questions?.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500 mb-2">Technical Questions</p>
+                          <div className="space-y-2">
+                            {interviewPrep.likely_technical_questions.map((q, i) => (
+                              <div key={i} className="rounded-xl border border-zinc-200 bg-white p-3.5">
+                                <p className="text-sm font-semibold text-zinc-800 mb-1">{q.question}</p>
+                                {q.tip && <p className="text-xs text-zinc-500 italic">💡 {q.tip}</p>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {interviewPrep.likely_behavioral_questions?.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500 mb-2">Behavioral Questions</p>
+                          <div className="space-y-2">
+                            {interviewPrep.likely_behavioral_questions.map((q, i) => (
+                              <div key={i} className="rounded-xl border border-zinc-200 bg-white p-3.5">
+                                <p className="text-sm font-semibold text-zinc-800 mb-1">{q.question}</p>
+                                {q.star_prompt && <p className="text-xs text-zinc-500 italic">⭐ {q.star_prompt}</p>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {interviewPrep.strengths_to_highlight?.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500 mb-2">Strengths to Highlight</p>
+                          <ul className="space-y-1">
+                            {interviewPrep.strengths_to_highlight.map((s, i) => (
+                              <li key={i} className="flex gap-2 text-sm text-zinc-700">
+                                <span className="mt-2 h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+                                {s}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {interviewPrep.gaps_to_prepare_for?.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500 mb-2">Gaps to Prepare For</p>
+                          <ul className="space-y-1">
+                            {interviewPrep.gaps_to_prepare_for.map((g, i) => (
+                              <li key={i} className="flex gap-2 text-sm text-zinc-700">
+                                <span className="mt-2 h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                                {g}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {interviewPrep.questions_to_ask_interviewer?.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500 mb-2">Questions to Ask the Interviewer</p>
+                          <ul className="space-y-1">
+                            {interviewPrep.questions_to_ask_interviewer.map((q, i) => (
+                              <li key={i} className="flex gap-2 text-sm text-zinc-700">
+                                <span className="mt-2 h-1.5 w-1.5 rounded-full bg-brand shrink-0" />
+                                {q}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── LinkedIn Message ── */}
+              {result.linkedin_message?.message && (
+                <div className="panel overflow-hidden">
+                  <button
+                    className="w-full flex items-center justify-between gap-3 p-5 text-left hover:bg-zinc-50/60 transition-colors"
+                    onClick={() => setOpenPanel(openPanel === 'linkedin' ? null : 'linkedin')}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <LinkIcon className="w-4 h-4 text-brand" />
+                      <div>
+                        <p className="section-title mb-0.5">Agent Generated</p>
+                        <h3 className="text-base font-semibold text-zinc-950">LinkedIn Connection Note</h3>
+                      </div>
+                    </div>
+                    {openPanel === 'linkedin' ? <ChevronUp className="w-4 h-4 text-zinc-400" /> : <ChevronDown className="w-4 h-4 text-zinc-400" />}
+                  </button>
+                  {openPanel === 'linkedin' && (
+                    <div className="px-5 pb-5 space-y-3">
+                      <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3">
+                        <p className="text-sm text-zinc-700 whitespace-pre-wrap leading-7">{result.linkedin_message.message}</p>
+                      </div>
+                      <button
+                        className="text-xs text-brand hover:text-brand-hover font-medium transition-colors"
+                        onClick={() => {
+                          navigator.clipboard.writeText(result.linkedin_message!.message)
+                          toast.success('LinkedIn note copied!')
+                        }}
+                      >
+                        Copy to clipboard
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Recruiter Tips ── */}
+              {result.recruiter_tips?.tips && result.recruiter_tips.tips.length > 0 && (
+                <div className="panel overflow-hidden">
+                  <button
+                    className="w-full flex items-center justify-between gap-3 p-5 text-left hover:bg-zinc-50/60 transition-colors"
+                    onClick={() => setOpenPanel(openPanel === 'tips' ? null : 'tips')}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Lightbulb className="w-4 h-4 text-brand" />
+                      <div>
+                        <p className="section-title mb-0.5">Agent Generated</p>
+                        <h3 className="text-base font-semibold text-zinc-950">Recruiter Tips</h3>
+                      </div>
+                    </div>
+                    {openPanel === 'tips' ? <ChevronUp className="w-4 h-4 text-zinc-400" /> : <ChevronDown className="w-4 h-4 text-zinc-400" />}
+                  </button>
+                  {openPanel === 'tips' && (
+                    <div className="px-5 pb-5">
+                      <ul className="space-y-3">
+                        {result.recruiter_tips.tips.map((tip: string, i: number) => (
+                          <li key={i} className="flex gap-3 text-sm text-zinc-700 bg-zinc-50 p-3 rounded-lg border border-zinc-100">
+                            <span className="mt-0.5 h-1.5 w-1.5 rounded-full bg-brand shrink-0" />
+                            {tip}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Feedback ── */}
+              <div className="panel p-5 flex flex-col items-center gap-3 text-center">
+                <p className="text-xs font-semibold uppercase tracking-widest text-zinc-400">Was this result helpful?</p>
+                {feedbackRating ? (
+                  <p className="text-sm text-emerald-600 font-medium">
+                    {feedbackRating === 'up' ? 'Thanks! This helps us improve.' : 'Got it — we\'ll refine our model.'}
+                  </p>
+                ) : (
+                  <div className="flex gap-3">
+                    <button
+                      disabled={feedbackSaving}
+                      onClick={async () => {
+                        setFeedbackSaving(true)
+                        try {
+                          if (result.history_id) await submitFeedback(result.history_id, 'up')
+                          setFeedbackRating('up')
+                          toast.success('Thanks for the feedback!')
+                        } catch {
+                          toast.error('Could not save feedback.')
+                        } finally {
+                          setFeedbackSaving(false)
+                        }
+                      }}
+                      className="flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all disabled:opacity-50"
+                    >
+                      <ThumbsUp className="w-4 h-4" /> Helpful
+                    </button>
+                    <button
+                      disabled={feedbackSaving}
+                      onClick={async () => {
+                        setFeedbackSaving(true)
+                        try {
+                          if (result.history_id) await submitFeedback(result.history_id, 'down')
+                          setFeedbackRating('down')
+                          toast.success('Feedback noted.')
+                        } catch {
+                          toast.error('Could not save feedback.')
+                        } finally {
+                          setFeedbackSaving(false)
+                        }
+                      }}
+                      className="flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:border-rose-400 hover:text-rose-500 hover:bg-rose-50 transition-all disabled:opacity-50"
+                    >
+                      <ThumbsDown className="w-4 h-4" /> Not helpful
+                    </button>
+                  </div>
+                )}
+              </div>
+
             </div>
           ) : (
             <div className="panel flex-1 flex flex-col items-center justify-center text-zinc-400 text-sm min-h-[400px] p-8">

@@ -405,6 +405,9 @@ export async function saveHistory(payload: {
   job_analysis?: object | null
   job_description?: string
   ats_score?: number
+  matched_keywords?: string[]
+  missing_keywords?: string[]
+  total_keywords?: number
 }): Promise<{ id: number }> {
   const { data } = await axios.post<{ id: number }>(`${BASE}/history/save`, payload)
   return data
@@ -461,11 +464,18 @@ export async function getHistoryEntry(id: number): Promise<HistoryEntry> {
         }
       : undefined,
     job_description: data.job_description ?? null,
+    matched_keywords: toStringArray(data.matched_keywords),
+    missing_keywords: toStringArray(data.missing_keywords),
+    total_keywords: typeof data.total_keywords === 'number' ? data.total_keywords : 0,
   }
 }
 
 export async function deleteHistory(id: number): Promise<void> {
   await axios.delete(`${BASE}/history/${id}`)
+}
+
+export async function submitFeedback(historyId: number, rating: 'up' | 'down'): Promise<void> {
+  await axios.post(`${BASE}/feedback`, { history_id: historyId, rating })
 }
 
 export async function exportLatex(resume: TailoredResume): Promise<void> {
@@ -542,7 +552,7 @@ export function agentAnalyze(
         const jsonStr = dataLine.slice(5).trim()
         if (!jsonStr) continue
 
-        let parsed: AgentStep & { result?: AgentAnalyzeResult }
+        let parsed: AgentStep & { result?: AgentAnalyzeResult; history_id?: number }
         try {
           parsed = JSON.parse(jsonStr)
         } catch {
@@ -551,6 +561,9 @@ export function agentAnalyze(
 
         if (parsed.step === 'complete' && parsed.result) {
           onComplete(parsed.result)
+        } else if (parsed.step === 'history_saved' && parsed.history_id) {
+          // Attach history_id to the result so the feedback button can use it
+          onStep({ step: 'history_saved', status: 'done', history_id: parsed.history_id } as AgentStep)
         } else if (parsed.step === 'error') {
           onError(parsed.message ?? 'Agent encountered an error.')
         } else {

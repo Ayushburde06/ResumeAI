@@ -215,6 +215,9 @@ export interface HistoryEntry {
   job_analysis: JobAnalysis | null
   quality_report?: AnalyzeResponse['quality_report'] | null
   job_description: string | null
+  matched_keywords: string[]
+  missing_keywords: string[]
+  total_keywords: number
   created_at: string
 }
 
@@ -280,9 +283,40 @@ export interface AgentStep {
     missing_after?: number
   }
   missing_keywords?: string[]
+  history_id?: number
 }
 
 export interface AgentAnalyzeResult extends AnalyzeResponse {
   interview_prep?: InterviewPrep
   agent_trace?: AgentTrace
+  // v2 new outputs
+  linkedin_message?: { message: string }
+  recruiter_tips?: { tips: string[] }
+  match_analysis?: {
+    match_score: number
+    matched_requirements: string[]
+    unmet_requirements: string[]
+    candidate_strengths: string[]
+    fit_verdict: string
+  }
+  ats_report?: {
+    baseline_score: number
+    final_score: number
+    improvement: string
+    matched_keywords: string[]
+    missing_keywords: string[]
+    total_keywords: number
+    score_breakdown?: {
+      composite: number
+      composite_pct: number
+      ats: number
+      readability: number
+      grammar: number
+      formatting: number
+      humanization: number
+      verdict: string
+    }
+  }
+  change_log?: Array<{ section: string; change: string }>
+  history_id?: number
 }

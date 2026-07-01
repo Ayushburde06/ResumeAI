@@ -1,7 +1,4 @@
 import os
-import shutil
-import subprocess
-import threading
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,13 +11,15 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from database import Base, engine
 from limiter import limiter          # shared instance — also used in auth.py
-from routers import analyze, jobs, auth, history, agent
-import models.user    # noqa: F401
-import models.history # noqa: F401
-import models.stats   # noqa: F401
+from routers import analyze, jobs, auth, history, agent, feedback, admin
+import models.user     # noqa: F401
+import models.history  # noqa: F401
+import models.stats    # noqa: F401
+import models.learning # noqa: F401  (LearningExample + DeltaPattern)
 
 Base.metadata.create_all(bind=engine)
 
@@ -36,13 +35,37 @@ try:
         if "quality_report" not in columns:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE resume_history ADD COLUMN quality_report TEXT;"))
+        if "matched_keywords" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE resume_history ADD COLUMN matched_keywords TEXT;"))
+        if "missing_keywords" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE resume_history ADD COLUMN missing_keywords TEXT;"))
+        if "total_keywords" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE resume_history ADD COLUMN total_keywords INTEGER;"))
+    # Migrate learning_examples: add user_approved + history_id if missing
+    if "learning_examples" in inspector.get_table_names():
+        le_cols = [c["name"] for c in inspector.get_columns("learning_examples")]
+        if "user_approved" not in le_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE learning_examples ADD COLUMN user_approved INTEGER;"))
+        if "history_id" not in le_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE learning_examples ADD COLUMN history_id INTEGER;"))
 except Exception as e:
     print(f"Migration error: {e}")
+
+_is_production = os.environ.get("ENV", "development").lower() == "production"
 
 app = FastAPI(
     title="ResumeAI API",
     description="AI-powered resume tailoring — rewrites resumes for ATS and job-description match.",
     version="2.0.0",
+    # Disable interactive docs in production to reduce attack surface
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
 )
 
 # ── CORS ─────────────────────────────────────────────────────────────────────
@@ -53,6 +76,8 @@ ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# SlowAPIMiddleware enforces per-route limits and adds standard rate-limit headers
+app.add_middleware(SlowAPIMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -61,6 +86,24 @@ app.add_middleware(
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+# ── Request body size limiter (non-upload routes) ─────────────────────────────
+_MAX_JSON_BODY = 512 * 1024  # 512 KB — enough for any resume JSON
+
+@app.middleware("http")
+async def limit_json_body_size(request: Request, call_next) -> Response:
+    content_type = request.headers.get("content-type", "")
+    # Only cap JSON bodies; file uploads are capped inside their own router
+    if "multipart/form-data" not in content_type:
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > _MAX_JSON_BODY:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=413,
+                content={"detail": "Request body too large."},
+            )
+    return await call_next(request)
+
 
 # ── Security Headers ──────────────────────────────────────────────────────────
 @app.middleware("http")
@@ -90,11 +133,13 @@ async def add_security_headers(request: Request, call_next) -> Response:
         )
     return response
 
-app.include_router(analyze.router, prefix="/api")
-app.include_router(jobs.router,    prefix="/api")
-app.include_router(auth.router,    prefix="/api")
-app.include_router(history.router, prefix="/api")
-app.include_router(agent.router,   prefix="/api")
+app.include_router(analyze.router,  prefix="/api")
+app.include_router(jobs.router,     prefix="/api")
+app.include_router(auth.router,     prefix="/api")
+app.include_router(history.router,  prefix="/api")
+app.include_router(agent.router,    prefix="/api")
+app.include_router(feedback.router, prefix="/api")
+app.include_router(admin.router,    prefix="/api")
 
 
 @app.on_event("startup")
@@ -107,85 +152,6 @@ async def _warmup_rag():
     except Exception as e:
         print(f"[RAG] Warmup skipped: {e}")
 
-
-# ── Persistent Puppeteer PDF server lifecycle ─────────────────────────────────
-
-_pdf_server_proc: subprocess.Popen | None = None
-
-
-def _start_pdf_server() -> None:
-    """Launch pdf_server.cjs in the background and wait for its READY signal."""
-    global _pdf_server_proc
-    node_path = shutil.which("node")
-    if not node_path:
-        print("[PDF] Node.js not found — PDF server not started. Fallback to subprocess.")
-        return
-
-    from pathlib import Path
-    server_script = Path(__file__).parent / "services" / "pdf_server.cjs"
-    if not server_script.exists():
-        print(f"[PDF] pdf_server.cjs not found at {server_script} — PDF server not started.")
-        return
-
-    port = os.environ.get("PDF_SERVER_PORT", "9009")
-    env  = {**os.environ, "PDF_SERVER_PORT": port}
-
-    try:
-        proc = subprocess.Popen(
-            [node_path, str(server_script)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,   # merge stderr into stdout
-            env=env,
-            text=True,
-            bufsize=1,
-        )
-        _pdf_server_proc = proc
-
-        # Wait up to 20s for the READY signal
-        ready = False
-        for _ in range(200):  # 200 × 100 ms = 20 s
-            line = proc.stdout.readline()
-            if not line:
-                break
-            line = line.rstrip()
-            print(f"[PDF-server] {line}")
-            if line.startswith("READY:"):
-                ready = True
-                break
-
-        if ready:
-            print(f"[PDF] Persistent browser server ready on port {port}")
-        else:
-            print("[PDF] Server did not signal READY — will use subprocess fallback")
-
-        # Drain remaining stdout in background thread so process doesn't block
-        def _drain():
-            for line in proc.stdout:
-                print(f"[PDF-server] {line.rstrip()}")
-        threading.Thread(target=_drain, daemon=True).start()
-
-    except Exception as e:
-        print(f"[PDF] Could not start pdf_server.cjs: {e}")
-
-
-@app.on_event("startup")
-async def _start_pdf_browser_server():
-    """Start the persistent Puppeteer browser server in a background thread."""
-    threading.Thread(target=_start_pdf_server, daemon=True).start()
-
-
-@app.on_event("shutdown")
-async def _stop_pdf_browser_server():
-    """Gracefully terminate the PDF server process."""
-    global _pdf_server_proc
-    if _pdf_server_proc and _pdf_server_proc.poll() is None:
-        _pdf_server_proc.terminate()
-        try:
-            _pdf_server_proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            _pdf_server_proc.kill()
-        print("[PDF] Browser server stopped")
-        _pdf_server_proc = None
 
 
 

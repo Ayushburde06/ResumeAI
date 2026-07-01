@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -8,6 +8,7 @@ from database import get_db
 from models.history import ResumeHistory
 from models.user import User
 from routers.auth import require_user
+from limiter import limiter
 
 router = APIRouter(prefix="/history", tags=["history"])
 
@@ -22,12 +23,17 @@ class SaveHistoryRequest(BaseModel):
     quality_report: Optional[dict] = None
     job_description: Optional[str] = None
     ats_score: Optional[int] = None
+    matched_keywords: Optional[list] = None
+    missing_keywords: Optional[list] = None
+    total_keywords: Optional[int] = None
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/save")
+@limiter.limit("30/minute")
 def save_history(
+    request: Request,
     body: SaveHistoryRequest,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
@@ -46,6 +52,9 @@ def save_history(
         job_analysis=body.job_analysis,
         quality_report=body.quality_report,
         job_description=body.job_description,
+        matched_keywords=body.matched_keywords,
+        missing_keywords=body.missing_keywords,
+        total_keywords=body.total_keywords,
     )
     db.add(entry)
     db.commit()
@@ -54,7 +63,9 @@ def save_history(
 
 
 @router.get("")
+@limiter.limit("60/minute")
 def list_history(
+    request: Request,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
@@ -81,7 +92,9 @@ def list_history(
 
 
 @router.get("/{entry_id}")
+@limiter.limit("60/minute")
 def get_history(
+    request: Request,
     entry_id: int,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
@@ -103,12 +116,17 @@ def get_history(
         "job_analysis": entry.job_analysis,
         "quality_report": entry.quality_report,
         "job_description": entry.job_description,
+        "matched_keywords": entry.matched_keywords or [],
+        "missing_keywords": entry.missing_keywords or [],
+        "total_keywords": entry.total_keywords or 0,
         "created_at": entry.created_at.isoformat() if entry.created_at else None,
     }
 
 
 @router.delete("/{entry_id}")
+@limiter.limit("30/minute")
 def delete_history(
+    request: Request,
     entry_id: int,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),

@@ -1,0 +1,160 @@
+{
+  "contact": {
+    "name": "Ayushkumar Burde",
+    "email": "ayushburde156@gmail.com",
+    "phone": "+91-8600820291",
+    "location": "Mumbai, India",
+    "linkedin": "https://linkedin.com/in/ayushburde",
+    "github": "https://github.com/ayushburde",
+    "website": "https://ayushburde.dev"
+  },
+  "summary": "Full-Stack Software Engineer with a Master's in Computer Applications and three years of internship and project experience building AI-powered, cloud-native applications. Proficient in Python, React, TypeScript, Node.js, and Django. Experienced with RESTful APIs, NoSQL databases, CI/CD pipelines, Agile workflows, and scalable microservices architecture on AWS and Google Cloud.",
+  "experience": [
+    {
+      "company": "CrystalTech Services Pvt Ltd",
+      "role": "Software Engineer Intern",
+      "dates": "Jul 2024 – Dec 2024",
+      "location": "Indore, India",
+      "bullets": [
+        "Built and deployed 8 microservices using Node.js and Express.js on AWS EC2, reducing average API latency by 35% through connection pooling and Redis caching.",
+        "Contributed to React.js and TypeScript frontend, integrating 12 RESTful API endpoints and following Agile/SCRUM sprints tracked in Jira.",
+        "Worked with MongoDB and Elasticsearch for data storage and full-text search; reduced query time by 40% through proper index design.",
+        "Supported CI/CD pipelines using GitHub Actions; automated deployment for three staging environments reducing release time by half."
+      ]
+    },
+    {
+      "company": "DevSquad Technologies",
+      "role": "Backend Developer Intern",
+      "dates": "Jan 2024 – Jun 2024",
+      "location": "Remote",
+      "bullets": [
+        "Designed and implemented Python-based data ingestion pipeline handling 50K records per day using Django ORM and Celery task queues.",
+        "Built a notification microservice using WebSockets and Redis pub/sub pattern, serving 10K+ concurrent users.",
+        "Wrote unit and integration tests using pytest, achieving 87% test coverage across the core service layer.",
+        "Collaborated with a cross-functional team of 8 engineers in daily standups and weekly sprint reviews following Agile methodology."
+      ]
+    },
+    {
+      "company": "Freelance",
+      "role": "Full-Stack Developer",
+      "dates": "Jun 2023 – Dec 2023",
+      "location": "Remote",
+      "bullets": [
+        "Delivered 5 client web applications using React, Node.js, and MongoDB; all projects received 5-star ratings.",
+        "Implemented payment integrations with Razorpay and Stripe for two e-commerce clients, handling INR 2L+ in transactions.",
+        "Built an automated invoice generation system with PDF export using ReportLab, reducing manual effort by 6 hours/week."
+      ]
+    },
+    {
+      "company": "Startup Garage",
+      "role": "Junior Web Developer Intern",
+      "dates": "Jan 2023 – May 2023",
+      "location": "Nagpur, India",
+      "bullets": [
+        "Built responsive UI components using HTML5, CSS3, and vanilla JavaScript for a logistics SaaS product.",
+        "Optimized MySQL queries for the order management module, cutting average query execution time from 800ms to 120ms.",
+        "Mentored two junior interns on Git workflow and REST API fundamentals."
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "ResumeAI",
+      "tech": "React, FastAPI, Python, Playwright, AI, RAG",
+      "dates": "Jun 2026 – Present",
+      "link": "https://github.com/ayushburde/resumeai",
+      "bullets": [
+        "Developed an AI-powered ATS Resume Builder with a multi-agent optimization loop, RAG-based keyword retrieval, and job description analysis for targeted resume tailoring.",
+        "Engineered a Playwright-based PDF export pipeline with adaptive typography that auto-adjusts font size and spacing; integrated FastAPI backend with SSE for real-time agent progress.",
+        "Implemented JWT authentication, usage tracking, and a learning store that records successful resume patterns for future improvement."
+      ]
+    },
+    {
+      "name": "NotesApp",
+      "tech": "React.js, Node.js, Express.js, MongoDB, JWT, AWS",
+      "dates": "2024",
+      "link": "https://github.com/ayushburde/notesapp",
+      "bullets": [
+        "Built a full-stack CRUD notes application with React frontend and Node.js/Express.js backend; deployed on AWS EC2 with Nginx reverse proxy.",
+        "Implemented JWT authentication with refresh token rotation; served 2K+ users with 99.5% uptime over six months.",
+        "Designed MongoDB schema with indexing for fast full-text note search across large collections."
+      ]
+    },
+    {
+      "name": "CV Generator",
+      "tech": "Python, Django, SQLite, ReportLab, Google Cloud",
+      "dates": "2023",
+      "link": "https://github.com/ayushburde/cv-generator",
+      "bullets": [
+        "Built a Django web application with PDF generation via ReportLab; implemented form validation, SQLite persistence, and Google Cloud file storage.",
+        "Deployed to Google Cloud App Engine with environment-variable configuration and automated daily DB backups to Cloud Storage."
+      ]
+    },
+    {
+      "name": "Inventory Management System",
+      "tech": "Python, Flask, PostgreSQL, Docker, Redis",
+      "dates": "2023",
+      "link": "https://github.com/ayushburde/inventory-app",
+      "bullets": [
+        "Built a Flask-based inventory management API with PostgreSQL backend; containerized using Docker Compose for local development parity.",
+        "Added Redis caching for frequently accessed product lookup endpoints, reducing average response time by 60%.",
+        "Implemented role-based access control with three permission levels and audit logging for all state-changing operations."
+      ]
+    },
+    {
+      "name": "Weather Dashboard",
+      "tech": "React, TypeScript, OpenWeather API, Node.js",
+      "dates": "2022",
+      "link": "https://github.com/ayushburde/weather-dashboard",
+      "bullets": [
+        "Built a real-time weather dashboard consuming OpenWeather API with automatic location detection and 5-day forecast visualization.",
+        "Implemented server-side API key proxying with Node.js to prevent client-side exposure of credentials."
+      ]
+    }
+  ],
+  "skills": {
+    "Languages": ["Python", "JavaScript", "TypeScript", "SQL", "Bash", "HTML5", "CSS3"],
+    "Frontend": ["React.js", "Redux", "TailwindCSS", "Next.js", "Vite"],
+    "Backend": ["Node.js", "Express.js", "Django", "Flask", "FastAPI", "RESTful APIs", "WebSockets", "Microservices"],
+    "Databases": ["MongoDB", "PostgreSQL", "MySQL", "SQLite", "Elasticsearch", "Redis"],
+    "Cloud & DevOps": ["AWS (EC2, S3, Lambda)", "Google Cloud", "Azure", "Docker", "GitHub Actions", "CI/CD", "Nginx"],
+    "Tools": ["Git", "Jira", "Postman", "pytest", "Celery"],
+    "Concepts": ["OOP", "Agile/SCRUM", "System Design", "AI-Driven Systems", "RAG", "Microservices Architecture"]
+  },
+  "education": [
+    {
+      "institution": "Tulsiramji Gaikwad Patil College of Engineering and Technology",
+      "degree": "Master of Computer Applications",
+      "year": "2025",
+      "location": "Nagpur, India"
+    },
+    {
+      "institution": "City Premier College",
+      "degree": "Bachelor of Computer Applications",
+      "year": "2022",
+      "location": "Nagpur, India"
+    }
+  ],
+  "certifications": [
+    {
+      "name": "Complete 2025 Python Bootcamp From Scratch",
+      "issuer": "Udemy",
+      "year": "2024"
+    },
+    {
+      "name": "Django Masterclass",
+      "issuer": "Udemy",
+      "year": "2024"
+    },
+    {
+      "name": "AWS Cloud Practitioner Essentials",
+      "issuer": "AWS Training",
+      "year": "2023"
+    },
+    {
+      "name": "Docker and Kubernetes: The Complete Guide",
+      "issuer": "Udemy",
+      "year": "2023"
+    }
+  ]
+}

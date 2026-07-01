@@ -6,7 +6,6 @@ All LLM calls route through existing GLM/Qwen via ai_service._get_client().
 """
 import json
 import math
-import os
 import re
 from pathlib import Path
 from typing import NamedTuple
@@ -39,6 +38,8 @@ def _load_knowledge_store() -> None:
         "resume_templates.jsonl",
         "ats_rules.jsonl",
         "job_market_signals.jsonl",
+        "cover_letter_patterns.jsonl",   # v2: targeted cover letter RAG
+        "hr_communication.jsonl",         # v2: LinkedIn, email, referral RAG
     ]
 
     for fname in files:
@@ -254,3 +255,64 @@ def get_store_stats() -> dict:
         src = doc.get("_source", "unknown")
         sources[src] = sources.get(src, 0) + 1
     return {"total_documents": len(_knowledge_store), "by_source": sources}
+
+
+# ── v2: Targeted retrieval per output type ────────────────────────────────────
+
+_SECTION_SOURCE_MAP = {
+    # Resume sections → resume writing guidance
+    "summary":      ["resume_templates", "ats_rules"],
+    "experience":   ["resume_templates", "ats_rules", "job_market_signals"],
+    "skills":       ["ats_rules", "job_market_signals"],
+    "projects":     ["resume_templates", "ats_rules"],
+    # Document types → communication templates
+    "cover_letter": ["cover_letter_patterns"],
+    "email":        ["hr_communication"],
+    "linkedin":     ["hr_communication"],
+    "referral":     ["hr_communication"],
+}
+
+
+def build_targeted_rag_context(
+    section_type: str,
+    job_title: str = "",
+    required_skills: list[str] | None = None,
+    seniority: str = "",
+    top_k: int = 3,
+) -> str:
+    """
+    Retrieve RAG context for a SPECIFIC section or output type.
+    Only retrieves from relevant knowledge sources — avoids contaminating
+    cover letter prompts with resume template docs, and vice versa.
+
+    Args:
+        section_type: One of 'summary','experience','skills','projects',
+                      'cover_letter','email','linkedin','referral'
+        job_title:    Parsed job title for scoring
+        required_skills: JD required skills for scoring
+        seniority:    Seniority level for scoring
+        top_k:        Max chunks per source
+
+    Returns:
+        Compact context string ready to inject into an LLM prompt.
+    """
+    _load_knowledge_store()
+    allowed_sources = _SECTION_SOURCE_MAP.get(section_type, ["resume_templates", "ats_rules"])
+
+    query = f"{job_title} {seniority} {section_type} {' '.join((required_skills or [])[:6])}"
+
+    lines = []
+    for source in allowed_sources:
+        chunks = retrieve(
+            query=query,
+            job_title=job_title,
+            required_skills=required_skills,
+            top_k=top_k,
+            source_filter=source,
+        )
+        for chunk in chunks:
+            if chunk.text.strip():
+                lines.append(f"[{chunk.category.upper()}] {chunk.text}")
+
+    return "\n".join(lines) if lines else ""
+

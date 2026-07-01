@@ -39,13 +39,13 @@ for path in _CHECK_FILES:
             continue
         for pat in _PATTERNS:
             if pat.search(value):
-                print(f"⚠️  Potential secret found in {path.name} line {i}: {line[:60]}...")
+                print(f"[WARNING] Potential secret found in {path.name} line {i}: {line[:60]}...")
                 found = True
                 break
 
 if found:
-    print("\n❌  Commit blocked — real API keys may be staged.")
+    print("\n[ERROR] Commit blocked — real API keys may be staged.")
     print("   Set secrets in your Railway/Render/Vercel dashboard instead.")
     sys.exit(1)
 else:
-    print("✅  No secrets detected in .env files.")
+    print("[OK] No secrets detected in .env files.")

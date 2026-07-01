@@ -50,9 +50,9 @@ export default function HistoryResults() {
   const initialResult: AnalyzeResponse = {
     tailored_resume: entry.tailored_resume,
     ats_score: entry.ats_score ?? 0,
-    matched_keywords: [],
-    missing_keywords: [],
-    total_keywords: 0,
+    matched_keywords: entry.matched_keywords ?? [],
+    missing_keywords: entry.missing_keywords ?? [],
+    total_keywords: entry.total_keywords ?? 0,
     ats_validation: entry.quality_report
       ? {
           formatting_report: entry.quality_report.formatting_report ?? '',

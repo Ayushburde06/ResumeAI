@@ -6,9 +6,11 @@ import type { AgentStep, AgentAnalyzeResult } from '../types'
 import AgentProgressPanel from '../components/AgentProgressPanel'
 import { useAuth } from '../context/AuthContext'
 
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
+
 export default function AgentAnalyze() {
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, refreshUser } = useAuth()
 
   const [resumeFile, setResumeFile] = useState<File | null>(null)
   const [jobDesc, setJobDesc] = useState('')
@@ -18,6 +20,7 @@ export default function AgentAnalyze() {
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<(() => void) | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const historyIdRef = useRef<number | null>(null)
 
   useEffect(() => {
     return () => {
@@ -28,7 +31,11 @@ export default function AgentAnalyze() {
   const handleFile = (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase()
     if (!ext || !['pdf', 'docx'].includes(ext)) {
-      setError('Please upload a PDF or DOCX file.')
+      setError('Unsupported file type. Please upload a PDF or DOCX file.')
+      return
+    }
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      setError('File is too large. Maximum size is 10 MB.')
       return
     }
     setResumeFile(file)
@@ -56,19 +63,27 @@ export default function AgentAnalyze() {
     setAgentSteps([])
     setError(null)
 
+    historyIdRef.current = null
     const cleanup = agentAnalyze(
       resumeFile,
       jobDesc,
       undefined,
       (step) => {
-        setAgentSteps((prev) => [...prev, step])
+        // Capture history_id when it arrives so we can attach it to the result
+        if (step.step === 'history_saved' && step.history_id) {
+          historyIdRef.current = step.history_id
+        } else {
+          setAgentSteps((prev) => [...prev, step])
+        }
       },
       (result: AgentAnalyzeResult) => {
         setIsRunning(false)
         abortRef.current = null
+        // Refresh quota badge so agent-mode usage is reflected immediately
+        refreshUser().catch(() => {})
         navigate('/', {
           state: {
-            result,
+            result: { ...result, history_id: historyIdRef.current ?? undefined },
             job_description: jobDesc,
             model_id: '',
           },

@@ -1,3 +1,4 @@
+import asyncio
 import io
 import json
 from concurrent.futures import ThreadPoolExecutor
@@ -115,7 +116,7 @@ def _validate_model_id(model_id: Optional[str], is_admin: bool = False) -> Optio
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
-@limiter.limit("20/minute")
+@limiter.limit("5/minute")   # AI call costs real money — tight per-IP limit
 async def analyze(
     request: Request,
     resume_file: UploadFile = File(..., description="Resume file — PDF or DOCX"),
@@ -258,7 +259,7 @@ async def analyze(
         analyses_used = stats.analysis_count
         is_premium = stats.is_premium
 
-        # Auto-save to history
+        # Auto-save to history (including keyword metadata)
         try:
             job_title = job_analysis.get("job_title", "") if job_analysis else ""
             entry = ResumeHistory(
@@ -271,6 +272,9 @@ async def analyze(
                 job_analysis=job_analysis,
                 quality_report=quality_report,
                 job_description=job_description,
+                matched_keywords=ats.matched_keywords,
+                missing_keywords=ats.missing_keywords,
+                total_keywords=ats.total_keywords,
             )
             db.add(entry)
             db.commit()
@@ -347,7 +351,11 @@ async def export_pdf(
     _user: User = Depends(require_user),
 ):
     try:
-        pdf_bytes = generate_pdf(body.resume, body.template)
+        # Run in a thread pool — generate_pdf uses Playwright which needs its
+        # own ProactorEventLoop; running it via run_in_executor gives it a
+        # clean thread separate from FastAPI's event loop.
+        loop = asyncio.get_event_loop()
+        pdf_bytes = await loop.run_in_executor(None, generate_pdf, body.resume, body.template)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:

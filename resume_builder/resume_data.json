@@ -1,0 +1,91 @@
+{
+  "contact": {
+    "name": "Ayushkumar Burde",
+    "email": "ayushburde156@gmail.com",
+    "phone": "+91-8600820291",
+    "location": "Mumbai, India",
+    "linkedin": "https://linkedin.com/in/ayushburde",
+    "github": "https://github.com/ayushburde",
+    "website": "https://ayushburde.dev"
+  },
+  "summary": "Software Engineer with a Master's in Computer Applications and hands-on experience building AI-powered, cloud-based systems. Proficient in Python, React, TypeScript, and backend development with Node.js and Django. Comfortable working across RESTful APIs, NoSQL databases, and CI/CD pipelines in Agile environments.",
+  "experience": [
+    {
+      "company": "CrystalTech Services Pvt Ltd",
+      "role": "Software Engineer Intern",
+      "dates": "Jul 2024 \u2013 Dec 2024",
+      "location": "Indore, India",
+      "bullets": [
+        "Built microservices with Node.js and Express.js; deployed on AWS to improve cloud infrastructure response time and service reliability.",
+        "Contributed to React.js and TypeScript frontend; integrated RESTful APIs and followed Agile/SCRUM workflows with Git for version control.",
+        "Worked with MongoDB and Elasticsearch for NoSQL data storage; supported CI/CD pipelines and debugging across distributed services."
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "ResumeAI",
+      "tech": "React, FastAPI, Python, Playwright, AI",
+      "dates": "Jun 2026 \u2013 Present",
+      "link": "",
+      "bullets": [
+        "Developed an AI-powered ATS Resume Builder with a multi-agent optimization loop, RAG-based keyword retrieval, and job description analysis for targeted resume tailoring.",
+        "Engineered a PDF export pipeline using Playwright and Jinja2 template rendering; integrated FastAPI backend with streaming SSE for real-time agent progress."
+      ]
+    },
+    {
+      "name": "NotesApp",
+      "tech": "React.js, Node.js, Express.js, MongoDB, JWT, AWS",
+      "dates": "",
+      "link": "https://github.com/ayushburde/notesapp",
+      "bullets": [
+        "Built a full-stack CRUD application using React, Node.js, and MongoDB; implemented JWT authentication, deployed on AWS, and served 2K+ users with reliable uptime.",
+        "Designed a REST API with Express.js supporting create, read, update, and delete operations; added token-based session management for secure user access."
+      ]
+    },
+    {
+      "name": "CV Generator",
+      "tech": "Python, Django, SQLite, HTML5, CSS3, ReportLab, Google Cloud",
+      "dates": "",
+      "link": "https://github.com/ayushburde/cv-generator",
+      "bullets": [
+        "Built a Django web application with PDF generation via ReportLab; implemented form validation, SQLite data persistence, and Google Cloud file storage.",
+        "Designed a responsive multi-step form with server-side rendering; deployed to Google Cloud App Engine with environment-variable-based configuration."
+      ]
+    }
+  ],
+  "skills": {
+    "Languages": ["Python", "JavaScript", "TypeScript", "SQL"],
+    "Frontend": ["React.js", "HTML5", "CSS3"],
+    "Backend": ["Node.js", "Express.js", "Django", "RESTful APIs", "Microservices Architecture"],
+    "Databases": ["MongoDB", "SQLite", "Elasticsearch", "NoSQL"],
+    "Cloud & DevOps": ["AWS", "Azure", "Google Cloud", "CI/CD", "Docker", "Git", "GitHub"],
+    "Concepts": ["OOP", "Agile/SCRUM", "Version Control", "AI-Driven Systems", "Software Development"]
+  },
+  "education": [
+    {
+      "institution": "Tulsiramji Gaikwad Patil College of Engineering and Technology",
+      "degree": "Master of Computer Applications",
+      "year": "2025",
+      "location": "Nagpur, India"
+    },
+    {
+      "institution": "City Premier College",
+      "degree": "Bachelor of Computer Applications",
+      "year": "2022",
+      "location": "Nagpur, India"
+    }
+  ],
+  "certifications": [
+    {
+      "name": "Complete 2025 Python Bootcamp From Scratch",
+      "issuer": "Udemy",
+      "year": "2024"
+    },
+    {
+      "name": "Django Masterclass",
+      "issuer": "Udemy",
+      "year": "2024"
+    }
+  ]
+}

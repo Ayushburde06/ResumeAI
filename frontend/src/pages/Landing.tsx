@@ -259,6 +259,7 @@ function AppForm() {
       <UnifiedWorkspace
         initialResult={state?.result}
         initialJd={state?.job_description ?? ''}
+        initialInterviewPrep={state?.result?.interview_prep ?? null}
         onAnalyze={handleAnalyze}
       />
     </div>

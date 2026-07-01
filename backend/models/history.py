@@ -16,4 +16,8 @@ class ResumeHistory(Base):
     job_analysis = Column(JSON, nullable=True)
     quality_report = Column(JSON, nullable=True)
     job_description = Column(Text, nullable=True)
+    # Keyword metadata — persisted so history results show accurate keyword counts
+    matched_keywords = Column(JSON, nullable=True)   # list[str]
+    missing_keywords = Column(JSON, nullable=True)   # list[str]
+    total_keywords = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

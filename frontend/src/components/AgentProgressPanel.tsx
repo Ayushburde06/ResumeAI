@@ -5,6 +5,8 @@ import {
   ClipboardCheck,
   FileText,
   Flag,
+  Link,
+  Lightbulb,
   Mail,
   Mic,
   PenTool,
@@ -15,6 +17,8 @@ import {
   Upload,
   CheckCircle2,
   AlertTriangle,
+  TrendingUp,
+  Layers,
 } from 'lucide-react'
 import type { AgentStep } from '../types'
 
@@ -24,23 +28,35 @@ interface Props {
 }
 
 const STEP_META: Record<string, { label: string; icon: React.ReactNode }> = {
-  parse_resume: { label: 'Parsing resume', icon: <Upload className="w-4.5 h-4.5 text-zinc-500" /> },
-  planning: { label: 'Planning strategy', icon: <Brain className="w-4.5 h-4.5 text-zinc-500" /> },
-  jd_analysis: { label: 'Understanding job description', icon: <Search className="w-4.5 h-4.5 text-zinc-500" /> },
-  gap_analysis: { label: 'Finding gaps', icon: <Flag className="w-4.5 h-4.5 text-zinc-500" /> },
-  rag_retrieval: { label: 'Retrieving ATS knowledge', icon: <BookOpen className="w-4.5 h-4.5 text-zinc-500" /> },
-  rewrite: { label: 'Optimizing resume', icon: <PenTool className="w-4.5 h-4.5 text-zinc-500" /> },
-  critique: { label: 'Self-reviewing draft', icon: <RefreshCw className="w-4.5 h-4.5 text-zinc-500" /> },
-  ats_validation: { label: 'Validating ATS compatibility', icon: <ClipboardCheck className="w-4.5 h-4.5 text-zinc-500" /> },
-  humanization_check: { label: 'Checking human tone', icon: <Sparkles className="w-4.5 h-4.5 text-zinc-500" /> },
-  grammar_check: { label: 'Running grammar review', icon: <CheckCircle2 className="w-4.5 h-4.5 text-zinc-500" /> },
-  reflection: { label: 'Reflection pass', icon: <Sparkles className="w-4.5 h-4.5 text-zinc-500" /> },
-  final_review: { label: 'Final review', icon: <ClipboardCheck className="w-4.5 h-4.5 text-zinc-500" /> },
-  cover_letter: { label: 'Generating cover letter', icon: <FileText className="w-4.5 h-4.5 text-zinc-500" /> },
-  email: { label: 'Generating application email', icon: <Mail className="w-4.5 h-4.5 text-zinc-500" /> },
-  interview_prep: { label: 'Preparing interview questions', icon: <Mic className="w-4.5 h-4.5 text-zinc-500" /> },
-  complete: { label: 'Complete', icon: <CheckCircle2 className="w-4.5 h-4.5 text-emerald-500" /> },
-  error: { label: 'Error', icon: <AlertTriangle className="w-4.5 h-4.5 text-red-500" /> },
+  // Phase 1
+  parse_resume:      { label: 'Parsing resume',                    icon: <Upload className="w-4.5 h-4.5 text-zinc-500" /> },
+  jd_analysis:       { label: 'Analysing job description',         icon: <Search className="w-4.5 h-4.5 text-zinc-500" /> },
+  ats_baseline:      { label: 'Running baseline ATS scan',         icon: <TrendingUp className="w-4.5 h-4.5 text-zinc-500" /> },
+  rag_retrieval:     { label: 'Retrieving ATS & industry context', icon: <BookOpen className="w-4.5 h-4.5 text-zinc-500" /> },
+  // Phase 2
+  gap_analysis:      { label: 'Identifying keyword gaps',          icon: <Flag className="w-4.5 h-4.5 text-zinc-500" /> },
+  optimization_plan: { label: 'Building section-level plan',       icon: <Brain className="w-4.5 h-4.5 text-zinc-500" /> },
+  planning:          { label: 'Planning optimization strategy',    icon: <Brain className="w-4.5 h-4.5 text-zinc-500" /> },
+  // Phase 3
+  rewrite:           { label: 'Rewriting resume sections',         icon: <PenTool className="w-4.5 h-4.5 text-zinc-500" /> },
+  critique:          { label: 'Self-reviewing draft',              icon: <RefreshCw className="w-4.5 h-4.5 text-zinc-500" /> },
+  // Phase 4
+  humanization:      { label: 'Humanizing rewritten sections',     icon: <Sparkles className="w-4.5 h-4.5 text-zinc-500" /> },
+  ats_validation:    { label: 'Validating ATS compatibility',      icon: <ClipboardCheck className="w-4.5 h-4.5 text-zinc-500" /> },
+  humanization_check:{ label: 'Checking human tone',              icon: <Sparkles className="w-4.5 h-4.5 text-zinc-500" /> },
+  grammar_check:     { label: 'Running grammar review',            icon: <CheckCircle2 className="w-4.5 h-4.5 text-zinc-500" /> },
+  reflection:        { label: 'Reflection & quality pass',         icon: <Layers className="w-4.5 h-4.5 text-zinc-500" /> },
+  final_review:      { label: 'Final review',                      icon: <ClipboardCheck className="w-4.5 h-4.5 text-zinc-500" /> },
+  resume_generation: { label: 'Assembling final resume',           icon: <FileText className="w-4.5 h-4.5 text-zinc-500" /> },
+  // Phase 5
+  cover_letter:      { label: 'Generating cover letter',           icon: <FileText className="w-4.5 h-4.5 text-zinc-500" /> },
+  email:             { label: 'Generating application email',      icon: <Mail className="w-4.5 h-4.5 text-zinc-500" /> },
+  interview_prep:    { label: 'Preparing interview questions',     icon: <Mic className="w-4.5 h-4.5 text-zinc-500" /> },
+  linkedin_message:  { label: 'Drafting LinkedIn message',         icon: <Link className="w-4.5 h-4.5 text-zinc-500" /> },
+  recruiter_tips:    { label: 'Generating recruiter tips',         icon: <Lightbulb className="w-4.5 h-4.5 text-zinc-500" /> },
+  // Terminal
+  complete:          { label: 'Complete',                          icon: <CheckCircle2 className="w-4.5 h-4.5 text-emerald-500" /> },
+  error:             { label: 'Error',                             icon: <AlertTriangle className="w-4.5 h-4.5 text-red-500" /> },
 }
 
 function StepBadge({ status }: { status: AgentStep['status'] }) {
