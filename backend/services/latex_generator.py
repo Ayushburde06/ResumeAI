@@ -348,16 +348,20 @@ def _project_block(p: dict) -> list[str]:
     name  = _e(p.get("name") or "")
     link  = (p.get("link") or "").strip()
     live_link = (p.get("live_link") or "").strip()
-    desc  = _bold(p.get("description") or "")
+    desc  = p.get("description") or ""
+    bullets = [b for b in (p.get("bullets") or []) if b]
     stack = ", ".join(_e(t) for t in (p.get("tech_stack") or []) if t)
 
     # Project header: bold name with optional link | tech stack on right
     name_tex = rf"\textbf{{{name}}}"
+    if stack:
+        name_tex += rf" \small{{({stack})}}"
+
     links: list[str] = []
     if link:
-        links.append(rf"{{{_myuline_href(link, _shorten(link))}}}")
+        links.append(rf"{_myuline_href(link, _shorten(link))}")
     if live_link:
-        links.append(rf"{{{_myuline_href(live_link, 'Live Demo')}}}")
+        links.append(rf"{_myuline_href(live_link, 'Live Demo')}")
         
     if links:
         name_tex += rf" $|$ \small " + " $|$ ".join(links)
@@ -366,11 +370,23 @@ def _project_block(p: dict) -> list[str]:
         r"    \resumeProjectHeading",
         f"      {{{name_tex}}}{{}}",
     ]
-    if stack:
-        lines.append(f"    \\small{{Built with: {stack}}} \\vspace{{-2pt}}")
-    if desc:
+    
+    # Collect all bullets (either from bullets list or newline/sentence split description)
+    all_bullets = []
+    if bullets:
+        all_bullets = bullets
+    elif isinstance(desc, list):
+        all_bullets = [d for d in desc if d]
+    elif isinstance(desc, str) and desc.strip():
+        lines = [l.strip() for l in desc.splitlines() if l.strip()]
+        if len(lines) <= 1 and ". " in desc:
+            lines = [s.strip() for s in re.split(r"(?<=[.!?])\s+", desc) if s.strip()]
+        all_bullets = lines
+
+    if all_bullets:
         lines.append(r"      \resumeItemListStart")
-        lines.append(f"        \\resumeItem{{{desc}}}")
+        for b in all_bullets:
+            lines.append(f"        \\resumeItem{{{_bold(b)}}}")
         lines.append(r"      \resumeItemListEnd")
     return lines
 

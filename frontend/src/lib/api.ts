@@ -270,13 +270,14 @@ export async function suggestJobSearch(
 
 export async function exportPdf(
   resume: TailoredResume,
-  template: 'modern' | 'classic' | 'minimal' = 'modern'
+  template: 'modern' | 'classic' | 'minimal' = 'modern',
+  jdKeywords?: string[]
 ): Promise<void> {
   let response
   try {
     response = await axios.post(
       `${BASE}/export-pdf`,
-      { resume, template },
+      { resume, template, jd_keywords: jdKeywords ?? [] },
       { responseType: 'blob', validateStatus: (s) => s >= 200 && s < 300 }
     )
   } catch (err) {

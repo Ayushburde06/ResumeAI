@@ -9,7 +9,7 @@ import {
   Search,
   Wifi,
 } from 'lucide-react'
-import { formatJobDescription, searchJobs } from '../lib/api'
+import { formatJobDescription, searchJobs, suggestJobSearch } from '../lib/api'
 import type { JobListing, JobSearchRequest } from '../types'
 
 interface Props {
@@ -133,16 +133,12 @@ export default function JobSearch({ onSelect, selectedJobId, resumeFile, modelId
     setAutoFilling(true)
     setError(null)
     try {
-      // @ts-ignore
-      const { suggestJobSearch } = await import('../lib/api')
       const result = await suggestJobSearch(resumeFile, modelId)
       if (result.search_term) setSearchTerm(result.search_term)
       if (result.location) setLocation(result.location)
       
       // Auto trigger search if we got a term
       if (result.search_term) {
-        // We can't directly call handleSearch here because state updates are async,
-        // but we can pass the values directly to a local version of handleSearch
         setLoading(true)
         setHasSearched(true)
         
@@ -159,9 +155,7 @@ export default function JobSearch({ onSelect, selectedJobId, resumeFile, modelId
         }
         
         try {
-          // @ts-ignore
-          const { searchJobs: doSearch } = await import('../lib/api')
-          const searchResult = await doSearch(filters)
+          const searchResult = await searchJobs(filters)
           setJobs(searchResult.jobs)
           if (searchResult.jobs.length === 0) {
             setError('No jobs found using the suggested keywords. Try adjusting them.')

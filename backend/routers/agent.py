@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, R
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from database import get_db
+from database import get_db, SessionLocal
 from limiter import limiter
 from models.history import ResumeHistory
 from models.stats import UserStats, FREE_LIMIT
@@ -28,9 +28,7 @@ async def _sse_generator(
     resume_text: str,
     jd_text: str,
     model_id: str | None,
-    db: Session,
     user: User,
-    stats: UserStats,
 ):
     """
     Async generator that runs the agent in a thread pool and yields
@@ -78,60 +76,63 @@ async def _sse_generator(
         await executor_future
 
     # ── Post-analysis: save history + update usage count ─────────────────
-    if final_result and stats:
+    if final_result and user:
+        db_sess = SessionLocal()
         try:
-            stats.analysis_count += 1
-            db.commit()
-        except Exception:
-            pass
+            user_stats = db_sess.query(UserStats).filter(UserStats.user_id == user.id).first()
+            if user_stats:
+                user_stats.analysis_count += 1
+                db_sess.commit()
 
-        history_id = None
-        try:
-            ja = final_result.get("job_analysis", {})
-            ats_score = final_result.get("ats_score", 0)
-            ats_report = final_result.get("ats_report", {})
-            entry = ResumeHistory(
-                user_id=user.id,
-                job_title=ja.get("job_title", ""),
-                ats_score=ats_score,
-                tailored_resume=final_result.get("tailored_resume", {}),
-                cover_letter=final_result.get("cover_letter", {}),
-                application_email=final_result.get("application_email", {}),
-                job_analysis=ja,
-                quality_report=final_result.get("quality_report", {}),
-                job_description=jd_text,
-                matched_keywords=ats_report.get("matched_keywords", []),
-                missing_keywords=ats_report.get("missing_keywords", []),
-                total_keywords=ats_report.get("total_keywords", 0),
-            )
-            db.add(entry)
-            db.commit()
-            db.refresh(entry)
-            history_id = entry.id
-            # Emit history_id to the client so the frontend can link feedback
-            history_event = f"data: {{\"step\": \"history_saved\", \"history_id\": {history_id}}}\n\n"
-            loop.call_soon_threadsafe(queue.put_nowait, history_event)
-        except Exception:
-            pass  # Never block the stream due to save failure
-
-        # ── Learning store: save winning examples for future RAG retrieval ──
-        try:
-            from services.learning_store import save_winning_example
-            ats_score = final_result.get("ats_score", 0)
-            if ats_score >= 88:
+            history_id = None
+            try:
                 ja = final_result.get("job_analysis", {})
-                save_winning_example(
-                    db=db,
+                ats_score = final_result.get("ats_score", 0)
+                ats_report = final_result.get("ats_report", {})
+                entry = ResumeHistory(
+                    user_id=user.id,
                     job_title=ja.get("job_title", ""),
-                    seniority=ja.get("seniority", ""),
-                    required_skills=ja.get("required_skills", []),
-                    resume=final_result.get("tailored_resume", {}),
                     ats_score=ats_score,
-                    model_used=model_id or "",
-                    history_id=history_id,
+                    tailored_resume=final_result.get("tailored_resume", {}),
+                    cover_letter=final_result.get("cover_letter", {}),
+                    application_email=final_result.get("application_email", {}),
+                    job_analysis=ja,
+                    quality_report=final_result.get("quality_report", {}),
+                    job_description=jd_text,
+                    matched_keywords=ats_report.get("matched_keywords", []),
+                    missing_keywords=ats_report.get("missing_keywords", []),
+                    total_keywords=ats_report.get("total_keywords", 0),
                 )
-        except Exception:
-            pass  # Never block response for learning store failures
+                db_sess.add(entry)
+                db_sess.commit()
+                db_sess.refresh(entry)
+                history_id = entry.id
+                # Emit history_id to the client so the frontend can link feedback
+                history_event = f"data: {{\"step\": \"history_saved\", \"history_id\": {history_id}}}\n\n"
+                yield history_event.encode("utf-8")
+            except Exception:
+                pass
+
+            # ── Learning store: save winning examples for future RAG retrieval ──
+            try:
+                from services.learning_store import save_winning_example
+                ats_score = final_result.get("ats_score", 0)
+                if ats_score >= 88:
+                    ja = final_result.get("job_analysis", {})
+                    save_winning_example(
+                        db=db_sess,
+                        job_title=ja.get("job_title", ""),
+                        seniority=ja.get("seniority", ""),
+                        required_skills=ja.get("required_skills", []),
+                        resume=final_result.get("tailored_resume", {}),
+                        ats_score=ats_score,
+                        model_used=model_id or "",
+                        history_id=history_id,
+                    )
+            except Exception:
+                pass  # Never block response for learning store failures
+        finally:
+            db_sess.close()
 
 
 @router.post("/agent-analyze")
@@ -140,7 +141,7 @@ async def agent_analyze(
     request: Request,
     resume_file: UploadFile = File(..., description="Resume file — PDF or DOCX"),
     job_description: str = Form(..., description="Full text of the job description"),
-    model: str = Form(default="", description="Model ID (e.g. glm, qwen)"),
+    model: str = Form(default="", description="Model ID (e.g. glm, gpt, kimi)"),
     current_user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
@@ -197,7 +198,7 @@ async def agent_analyze(
 
     # ── Stream SSE response ──────────────────────────────────────────────────
     return StreamingResponse(
-        _sse_generator(request, resume_text, job_description, model_id, db, current_user, stats),
+        _sse_generator(request, resume_text, job_description, model_id, current_user),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

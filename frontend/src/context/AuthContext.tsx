@@ -51,6 +51,8 @@ function loadFromStorage(): { user: AuthUser | null; token: string | null } {
   return { user: null, token: null }
 }
 
+const BASE = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const initial = loadFromStorage()
   const [user, setUser] = useState<AuthUser | null>(initial.user)
@@ -67,7 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
 
-    axios.get<AuthUser>('/api/auth/me')
+    axios.get<AuthUser>(`${BASE}/auth/me`)
       .then(({ data }) => {
         setUser((prev) => {
           const updated = prev ? { ...prev, ...data } : data
@@ -98,7 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function refreshUser() {
     if (!token) return
     try {
-      const { data } = await axios.get<AuthUser>('/api/auth/me')
+      const { data } = await axios.get<AuthUser>(`${BASE}/auth/me`)
       setUser((prev) => {
         const updated = prev ? { ...prev, ...data } : data
         localStorage.setItem('auth_user', JSON.stringify(updated))

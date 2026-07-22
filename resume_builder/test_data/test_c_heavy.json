@@ -60,12 +60,12 @@
   "projects": [
     {
       "name": "ResumeAI",
-      "tech": "React, FastAPI, Python, Playwright, AI, RAG",
+      "tech": "React, FastAPI, Python, WeasyPrint, AI, RAG",
       "dates": "Jun 2026 – Present",
       "link": "https://github.com/ayushburde/resumeai",
       "bullets": [
         "Developed an AI-powered ATS Resume Builder with a multi-agent optimization loop, RAG-based keyword retrieval, and job description analysis for targeted resume tailoring.",
-        "Engineered a Playwright-based PDF export pipeline with adaptive typography that auto-adjusts font size and spacing; integrated FastAPI backend with SSE for real-time agent progress.",
+        "Engineered a WeasyPrint-based PDF export pipeline with adaptive typography that auto-adjusts font size and spacing; integrated FastAPI backend with SSE for real-time agent progress.",
         "Implemented JWT authentication, usage tracking, and a learning store that records successful resume patterns for future improvement."
       ]
     },

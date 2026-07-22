@@ -28,7 +28,7 @@ I built this end-to-end to handle everything from UI to complex AI state managem
 *   **Database:** SQLite + SQLAlchemy ORM
 *   **AI/Logic:** Custom Python State Machine (Agent Loop), Custom TF-IDF (RAG), OpenAI-compatible GLM API
 *   **Authentication:** JWT + bcrypt hashing
-*   **Document Processing:** pdfplumber (reading) + Puppeteer/Jinja2 (exporting pixel-perfect PDFs)
+*   **Document Processing:** pdfplumber (reading) + WeasyPrint/Jinja2 (exporting pixel-perfect PDFs)
 
 ---
 
@@ -37,7 +37,7 @@ I built this end-to-end to handle everything from UI to complex AI state managem
 *   **Smart Resume Tailoring:** Completely rewrites summaries, experience, and skills based on the exact job description.
 *   **Live ATS Scoring:** Shows you exactly which keywords you matched and which ones you missed.
 *   **History Dashboard:** Saves every version of your tailored resumes securely in your account.
-*   **PDF Export:** Uses a headless browser (Puppeteer) to export the HTML exactly as it looks on screen into an A4 PDF.
+*   **PDF Export:** Uses WeasyPrint to render Jinja2 HTML templates into pixel-perfect PDFs with adaptive typography.
 *   **Parallel Cover Letters:** Gets you a matching cover letter instantly.
 
 ---
@@ -68,6 +68,12 @@ uvicorn main:app --reload
 cd frontend
 npm install
 npm run dev
+```
+
+**3. Run Automated Tests:**
+```bash
+cd backend
+python -m pytest tests
 ```
 
 *(You'll need to create a `.env` in the backend folder with your `OPENAI_API_KEY`!)*

@@ -1,6 +1,9 @@
 import io
 import pdfplumber
-import fitz  # PyMuPDF
+try:
+    import fitz  # PyMuPDF
+except ImportError:
+    fitz = None
 from docx import Document
 
 
@@ -37,6 +40,8 @@ def _check_mime(filename: str, file_bytes: bytes, content_type: str | None = Non
 def _extract_pdf_annotation_links(file_bytes: bytes) -> list[str]:
     """Return all URI hyperlinks stored as PDF link annotations."""
     urls: list[str] = []
+    if fitz is None:
+        return urls
     try:
         doc = fitz.open(stream=file_bytes, filetype="pdf")
         for page in doc:

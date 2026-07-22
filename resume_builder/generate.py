@@ -10,7 +10,7 @@ if hasattr(sys.stderr, "reconfigure"):
 """
 generate.py -- Agentic Resume Generation Pipeline
 =================================================
-Closed loop: Validate JSON → Build DOCX → Render HTML → PDF via Playwright
+Closed loop: Validate JSON → Build DOCX → Render HTML → PDF via WeasyPrint
            → Rasterize → Inspect pages → Auto-correct → Re-verify → Report
 
 Usage:
@@ -21,7 +21,6 @@ Usage:
 """
 
 import argparse
-import asyncio
 import json
 import re
 import sys
@@ -41,15 +40,12 @@ jsonschema  = _require("jsonschema",  "pip install jsonschema")
 docx_mod    = _require("docx",        "pip install python-docx")
 pdfium      = _require("pypdfium2",   "pip install pypdfium2")
 PIL_mod     = _require("PIL",         "pip install Pillow")
-
-from docx import Document
+weasyprint_mod = _require("weasyprint", "pip install weasyprint")
 from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from PIL import Image
-
-from playwright.async_api import async_playwright
 
 # ── paths ─────────────────────────────────────────────────────────────────────
 ROOT       = Path(__file__).parent
@@ -587,32 +583,17 @@ def build_html(data: dict, p: TypographyParams) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 4 ─ PLAYWRIGHT RENDERER  (HTML → PDF)
+# 4 ─ WEASYPRINT RENDERER  (HTML → PDF)
 # ══════════════════════════════════════════════════════════════════════════════
 
-async def _render_pdf(html: str, out_path: Path) -> Path:
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=True)
-        page    = await browser.new_page()
-        await page.set_content(html, wait_until="networkidle")
-        await page.pdf(
-            path             = str(out_path),
-            format           = "Letter",
-            print_background = True,
-            prefer_css_page_size = True,
-        )
-        await browser.close()
-    return out_path
-
-
 def render_pdf(html: str, out_path: Path) -> Path:
-    """Synchronous wrapper around the async Playwright PDF renderer."""
-    loop = asyncio.ProactorEventLoop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(_render_pdf(html, out_path))
-    finally:
-        loop.close()
+    """Render an HTML string to a PDF file using WeasyPrint."""
+    import weasyprint
+    pdf_bytes = weasyprint.HTML(string=html).write_pdf()
+    if not pdf_bytes or not pdf_bytes.startswith(b"%PDF"):
+        raise RuntimeError("WeasyPrint did not return valid PDF bytes.")
+    out_path.write_bytes(pdf_bytes)
+    return out_path
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -636,56 +617,62 @@ def rasterize(pdf_path: Path, out_dir: Path, dpi: int = 150) -> list[Path]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 6 ─ VISUAL INSPECTOR  (Pillow-based pixel analysis)
+# 6 ─ VISUAL INSPECTOR  (Qwen3-VL via AWS Bedrock, pixel fallback)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _fill_ratio(img: Image.Image, region=None) -> float:
-    """
-    Return fraction of pixels in `region` that are NOT near-white.
-    A white/near-white pixel has all channels >= 230.
-    """
-    if region:
-        img = img.crop(region)
-    rgb = img.convert("RGB")
-    pixels = list(rgb.getdata())
-    non_white = sum(1 for r, g, b in pixels if min(r, g, b) < 230)
-    return non_white / len(pixels) if pixels else 0.0
+# Lazy-import so the inspector module is only needed at runtime
+def _get_inspector():
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(ROOT.parent))
+        from resume_builder.inspector import bedrock_inspector, fix_planner
+        return bedrock_inspector, fix_planner
+    except ImportError:
+        return None, None
 
 
 def analyze_images(image_paths: list[Path]) -> list[str]:
     """
-    Inspect rendered page images and return a list of issue codes:
-      "overflow"            - text too close to bottom margin on page 1
-      "sparse_bottom"       - bottom 35% of page 1 is nearly empty (content could expand)
-      "second_page_sparse"  - last page has < 18% fill (content should reflow to page 1)
+    Inspect rendered page images via Qwen3-VL (Bedrock) and return issue codes.
+    Falls back to legacy pixel analysis if Bedrock is unavailable.
+    Stores the full verdict on the module for the loop to consume.
     """
-    issues: list[str] = []
+    inspector, _ = _get_inspector()
+    if inspector is None:
+        return _pixel_fallback_analyze(image_paths)
 
+    verdict = inspector.inspect_pages(image_paths, verbose=True)
+    # Stash verdict so run_pipeline can pass it directly to fix_planner
+    analyze_images._last_verdict = verdict
+    return verdict.get("issues", [])
+
+
+# Store the last vision verdict so the loop can use it for precise fixing
+analyze_images._last_verdict = None
+
+
+def _pixel_fallback_analyze(image_paths: list[Path]) -> list[str]:
+    """Legacy Pillow pixel-brightness fallback (used when Bedrock unavailable)."""
+    issues: list[str] = []
     img1 = Image.open(image_paths[0])
     w, h = img1.size
 
-    # Zone dimensions (in pixels relative to 150 dpi rendering)
-    bottom_margin_zone = (0, int(h * 0.93), w, h)        # last 7%  — overflow guard
-    bottom_third_zone  = (0, int(h * 0.65), w, h)        # bottom 35% — sparseness check
+    def fill_ratio(img, region=None):
+        if region:
+            img = img.crop(region)
+        rgb = img.convert("RGB")
+        pixels = list(rgb.getdata())
+        non_white = sum(1 for r, g, b in pixels if min(r, g, b) < 230)
+        return non_white / len(pixels) if pixels else 0.0
 
-    fill_margin = _fill_ratio(img1, bottom_margin_zone)
-    fill_bottom = _fill_ratio(img1, bottom_third_zone)
-
-    # Text bleeding into the very bottom margin
-    if fill_margin > 0.04:
+    if fill_ratio(img1, (0, int(h * 0.93), w, h)) > 0.04:
         issues.append("overflow")
-
-    # Bottom third of page 1 nearly empty (and only 1 page) → expand
-    if len(image_paths) == 1 and fill_bottom < 0.06:
+    if len(image_paths) == 1 and fill_ratio(img1, (0, int(h * 0.65), w, h)) < 0.06:
         issues.append("sparse_bottom")
-
-    # If a second page exists but is mostly blank → compress to fix reflow
     if len(image_paths) >= 2:
-        last_img  = Image.open(image_paths[-1])
-        fill_last = _fill_ratio(last_img)
-        if fill_last < 0.18:
+        last_img = Image.open(image_paths[-1])
+        if fill_ratio(last_img) < 0.18:
             issues.append("second_page_sparse")
-
     return issues
 
 
@@ -747,24 +734,31 @@ def run_pipeline(data: dict, label: str, max_iter: int = 6) -> dict:
 
         print(f"    FAIL Issues found: {issues}")
 
-        # Step 5: Identify root cause and adjust
-        if "overflow" in issues:
-            print("      Root cause: font/spacing too large → content overflows margin")
-            if not params.step_down():
-                print("      Already at minimum size — cannot reduce further")
-                break
+        # Step 5: Apply fix via vision verdict (or fallback step_down/step_up)
+        _, fix_planner = _get_inspector()
+        verdict = getattr(analyze_images, "_last_verdict", None)
 
-        elif "second_page_sparse" in issues:
-            print("      Root cause: section/bullet spacing spreads content to a sparse 2nd page")
-            if not params.step_down():
-                print("      Already at minimum size — cannot reduce further")
+        if fix_planner and verdict:
+            # GLM-guided fix: precise deltas from vision inspector
+            changed = fix_planner.apply_verdict(params, verdict)
+            reasoning = verdict.get("fix", {}).get("reasoning", "")
+            source    = verdict.get("source", "vision")
+            print(f"      Fix [{source}]: {reasoning or 'adjusting params'}")
+            if not changed:
+                print("      Params at boundary — cannot adjust further")
                 break
-
-        elif "sparse_bottom" in issues:
-            print("      Root cause: font/spacing too small → page has large unused whitespace")
-            if not params.step_up():
-                print("      Already at maximum size — cannot increase further")
-                break
+        else:
+            # Deterministic fallback
+            if "overflow" in issues or "second_page_sparse" in issues:
+                print("      Root cause: content too large → stepping down")
+                if not params.step_down():
+                    print("      Already at minimum size — cannot reduce further")
+                    break
+            elif "sparse_bottom" in issues:
+                print("      Root cause: content too sparse → stepping up")
+                if not params.step_up():
+                    print("      Already at maximum size — cannot increase further")
+                    break
 
     else:
         print(f"  ⚠  Reached max iterations ({max_iter}) without a clean pass")

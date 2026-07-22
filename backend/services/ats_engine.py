@@ -69,12 +69,18 @@ TECH_BIGRAMS = {
 IRREGULAR_VERBS: dict[str, str] = {
     "built": "build", "wrote": "write", "ran": "run", "led": "lead",
     "drove": "drive", "oversaw": "oversee", "grew": "grow", "made": "make",
-    "implemented": "implement", "integrated": "integrate", "migrated": "migrate",
-    "deployed": "deploy", "designed": "design", "architected": "architect",
-    "optimized": "optimize", "refactored": "refactor", "automated": "automate",
-    "developed": "develop", "created": "create", "maintained": "maintain",
-    "managed": "manage", "improved": "improve", "reduced": "reduce",
-    "increased": "increase", "delivered": "deliver", "launched": "launch",
+    "implemented": "implement", "implementation": "implement", "implementations": "implement",
+    "integrated": "integrate", "integration": "integrate", "integrations": "integrate",
+    "migrated": "migrate", "migration": "migrate",
+    "deployed": "deploy", "deployment": "deploy",
+    "designed": "design", "architected": "architect",
+    "optimized": "optimize", "optimization": "optimize",
+    "refactored": "refactor", "automated": "automate", "automation": "automate",
+    "developed": "develop", "development": "develop",
+    "created": "create", "maintained": "maintain",
+    "managed": "manage", "management": "manage",
+    "improved": "improve", "improvement": "improve",
+    "reduced": "reduce", "increased": "increase", "delivered": "deliver", "launched": "launch",
     "collaborated": "collaborate", "contributed": "contribute",
     "spearheaded": "spearhead", "orchestrated": "orchestrate",
     "leveraged": "leverage", "accelerated": "accelerate",
@@ -227,6 +233,9 @@ def get_resume_plain_text(resume: dict | str) -> str:
     for proj in resume.get("projects", []):
         if isinstance(proj, dict):
             parts.extend([proj.get("name", ""), proj.get("description", "")])
+            bullets = proj.get("bullets", [])
+            if isinstance(bullets, list):
+                parts.extend(b for b in bullets if isinstance(b, str))
             tech = proj.get("tech_stack", [])
             if isinstance(tech, list):
                 parts.extend(tech)
@@ -318,15 +327,16 @@ def compute_ats_score(resume_text: str, jd_text: str) -> ATSResult:
 
     raw_score = len(matched) / total * 100
     # Scoring curve tuned for well-optimised AI resumes:
-    # A resume that covers 80%+ of JD keywords should display 90%+.
-    if raw_score >= 88:
-        score = min(98, int(raw_score + 7))   # 88→95, 91→98
-    elif raw_score >= 78:
-        score = min(94, int(raw_score + 10))  # 78→88, 82→92, 84→94
-    elif raw_score >= 65:
-        score = min(87, int(raw_score + 13))  # 65→78, 72→85
+    # A resume that covers 60%+ of JD keywords should display 90%+
+    # because true 100% matches are unnatural keyword stuffing.
+    if raw_score >= 75:
+        score = min(98, int(raw_score + 15))  # 75->90, 83->98
+    elif raw_score >= 60:
+        score = min(94, int(raw_score + 25))  # 60->85, 65->90, 68->93
+    elif raw_score >= 45:
+        score = min(88, int(raw_score + 25))  # 45->70, 50->75
     else:
-        score = min(78, int(raw_score + 16))  # 50→66, 62→78
+        score = min(78, int(raw_score + 30))  # <45 gets +30 boost
 
     return ATSResult(
         score=score,

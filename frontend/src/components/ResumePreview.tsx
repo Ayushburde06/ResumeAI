@@ -73,6 +73,8 @@ interface Props {
   onResumeChange: (resume: TailoredResume) => void
   onEditComplete?: () => void
   rescoring?: boolean
+  /** JD-matched keywords from agent/ATS result — bolded in live preview and PDF export */
+  jdKeywords?: string[]
 }
 
 function ContactLine({ pi }: { pi: TailoredResume['personal_info'] }) {
@@ -655,7 +657,7 @@ const getScore = (n: number) => ({
 
 const EDIT_STORAGE_KEY = 'resume_unsaved_edits'
 
-export default function ResumePreview({ resume, atsScore, onResumeChange, onEditComplete, rescoring }: Props) {
+export default function ResumePreview({ resume, atsScore, onResumeChange, onEditComplete, rescoring, jdKeywords }: Props) {
   const [template, setTemplate] = useState<TemplateId>('modern')
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
@@ -741,7 +743,7 @@ export default function ResumePreview({ resume, atsScore, onResumeChange, onEdit
     setExporting(true)
     setExportError(null)
     try {
-      await exportPdf(resume, template)
+      await exportPdf(resume, template, jdKeywords)
     } catch (err) {
       setExportError(err instanceof Error ? err.message : 'PDF export failed.')
     } finally {

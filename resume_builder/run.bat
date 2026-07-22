@@ -16,12 +16,10 @@ set PYTHON=C:\Users\Ayush123\AppData\Local\Programs\Python\Python313\python.exe
 if not exist %PYTHON% set PYTHON=python
 
 :: First-run setup: install any missing packages
-%PYTHON% -c "import docx, pypdfium2, PIL, playwright, jsonschema" 2>nul
+%PYTHON% -c "import docx, pypdfium2, PIL, weasyprint, jsonschema" 2>nul
 if %ERRORLEVEL% NEQ 0 (
     echo Installing required packages...
     %PYTHON% -m pip install -r requirements.txt --quiet
-    echo Installing Playwright Chromium...
-    %PYTHON% -m playwright install chromium
 )
 
 :: Run the pipeline

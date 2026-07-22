@@ -77,8 +77,8 @@
     margin-bottom: 7px;
   }
 
-  .section { margin-bottom: 7px; page-break-inside: avoid; }
-  .entry   { page-break-inside: avoid; }
+  .section { margin-bottom: 7px; page-break-inside: auto; }
+  .entry   { page-break-inside: auto; }
   .section-title {
     font-size: 6.5pt;
     font-weight: bold;
@@ -172,7 +172,7 @@
       <div class="s-section-title">Education</div>
       {% for edu in resume.education %}
       <div class="s-edu">
-        <div class="s-edu-inst">{{ edu.institution }}</div>
+        <div class="s-edu-inst">{{ edu.institution | bold }}</div>
         <div class="s-edu-year">{{ edu.graduation_year }}</div>
       </div>
       {% endfor %}

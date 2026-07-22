@@ -55,7 +55,7 @@ def _normalize_job_title(title: str) -> str:
 
 def _make_skills_key(skills: list[str]) -> str:
     """Create a sorted, normalized key from top skills for fuzzy matching."""
-    normalized = sorted({s.lower().strip() for s in skills if s.strip()}[:8])
+    normalized = sorted(list({s.lower().strip() for s in skills if s.strip()})[:8])
     return ",".join(normalized)
 
 

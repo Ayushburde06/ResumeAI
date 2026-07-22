@@ -15,9 +15,9 @@ jobs:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host:     ${{ secrets.EC2_HOST }}        # EC2 public IP or domain
-          username: ${{ secrets.EC2_USER }}        # e.g. ubuntu, ec2-user, admin
-          key:      ${{ secrets.EC2_SSH_KEY }}     # contents of your .pem private key
+          host:     ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key:      ${{ secrets.EC2_SSH_KEY }}
           port:     22
           script: |
             set -e

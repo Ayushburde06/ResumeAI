@@ -5,17 +5,17 @@ No heavy dependencies: no ChromaDB, no sentence-transformers.
 All LLM calls route through existing GLM/Qwen via ai_service._get_client().
 """
 import json
-import math
 import re
 from pathlib import Path
 from typing import NamedTuple
+import numpy as np
+from services.ai_service import get_embedding
 
 # ── Knowledge base path ──────────────────────────────────────────────────────
 _DATA_DIR = Path(__file__).parent.parent / "data" / "rag_knowledge"
 
 # ── In-memory knowledge store ────────────────────────────────────────────────
 _knowledge_store: list[dict] = []
-_idf_cache: dict[str, float] = {}
 _store_loaded = False
 
 
@@ -72,66 +72,24 @@ def _load_knowledge_store() -> None:
                 except json.JSONDecodeError:
                     continue
 
-    _build_idf()
+    # Pre-compute embeddings for dense vector search
+    for doc in _knowledge_store:
+        if "embedding" not in doc:
+            try:
+                doc["embedding"] = get_embedding(doc.get("text", ""))
+            except Exception:
+                pass
+
     _store_loaded = True
 
 
-def _tokenize(text: str) -> list[str]:
-    """Simple whitespace + punctuation tokenizer, lowercase."""
-    return re.findall(r"[a-z][a-z0-9+#\-.]{1,}", text.lower())
-
-
-def _build_idf() -> None:
-    """Compute IDF weights across the knowledge store."""
-    global _idf_cache
-    N = len(_knowledge_store)
-    if N == 0:
-        return
-
-    df: dict[str, int] = {}
-    for doc in _knowledge_store:
-        tokens = set(_tokenize(doc.get("text", "") + " " + " ".join(doc.get("tags", []))))
-        for t in tokens:
-            df[t] = df.get(t, 0) + 1
-
-    _idf_cache = {
-        t: math.log((N + 1) / (freq + 1)) + 1.0
-        for t, freq in df.items()
-    }
-
-
-def _score_document(doc: dict, query_tokens: set[str], query_text: str) -> float:
-    """TF-IDF-style score for a document given query tokens."""
-    doc_text = doc.get("text", "") + " " + " ".join(doc.get("tags", []))
-    doc_tokens = _tokenize(doc_text)
-
-    if not doc_tokens:
+def cosine_similarity(v1: list[float], v2: list[float]) -> float:
+    """Compute cosine similarity between two vectors."""
+    vec1, vec2 = np.array(v1), np.array(v2)
+    norm1, norm2 = np.linalg.norm(vec1), np.linalg.norm(vec2)
+    if norm1 == 0 or norm2 == 0:
         return 0.0
-
-    # TF for doc
-    tf: dict[str, float] = {}
-    for t in doc_tokens:
-        tf[t] = tf.get(t, 0) + 1
-    doc_len = len(doc_tokens)
-    for t in tf:
-        tf[t] = tf[t] / doc_len
-
-    # TF-IDF dot product with query
-    score = 0.0
-    for qt in query_tokens:
-        if qt in tf:
-            idf = _idf_cache.get(qt, 1.0)
-            score += tf[qt] * idf
-
-    # Bonus: exact phrase substring match (e.g., job title in text)
-    doc_text_lower = doc_text.lower()
-    query_lower = query_text.lower()
-    for phrase in [query_lower[:20], query_lower[: len(query_lower) // 2]]:
-        if len(phrase) > 5 and phrase in doc_text_lower:
-            score *= 1.4
-            break
-
-    return score
+    return float(np.dot(vec1, vec2) / (norm1 * norm2))
 
 
 def retrieve(
@@ -164,13 +122,24 @@ def retrieve(
     if required_skills:
         parts.extend(required_skills[:10])
     full_query = " ".join(parts)
-    query_tokens = set(_tokenize(full_query))
+    
+    # Generate dense embedding for the query
+    try:
+        query_vector = get_embedding(full_query)
+    except Exception:
+        query_vector = None
 
     scored: list[tuple[float, dict]] = []
     for doc in _knowledge_store:
         if source_filter and doc.get("_source") != source_filter:
             continue
-        score = _score_document(doc, query_tokens, full_query)
+        
+        if query_vector and "embedding" in doc:
+            score = cosine_similarity(query_vector, doc["embedding"])
+        else:
+            # Fallback if embedding is missing
+            score = 0.5 if full_query.lower()[:10] in doc.get("text", "").lower() else 0.0
+            
         if score > 0:
             scored.append((score, doc))
 

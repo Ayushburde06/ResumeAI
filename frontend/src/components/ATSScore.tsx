@@ -6,12 +6,13 @@ interface Props {
   matchedKeywords: string[]
   missingKeywords: string[]
   totalKeywords: number
+  humanizationScore?: number
   onImproveAts?: () => void
   improving?: boolean
   autoImproved?: boolean
 }
 
-function ScoreRing({ score }: { score: number }) {
+function ScoreRing({ score, title = "ATS Match" }: { score: number, title?: string }) {
   const [animated, setAnimated] = useState(false)
   const radius = 40
   const circumference = 2 * Math.PI * radius
@@ -56,16 +57,22 @@ function ScoreRing({ score }: { score: number }) {
         <text x="50" y="46" textAnchor="middle" fontSize="18" fontWeight="700" fill={color}>{score}</text>
         <text x="50" y="60" textAnchor="middle" fontSize="9" fill="#6b7280">/ 100</text>
       </svg>
-      <span
-        className={`text-sm font-semibold px-2.5 py-0.5 rounded-full ${
-          isElite
-            ? 'bg-indigo-50 text-indigo-600 border border-indigo-200'
-            : ''
-        }`}
-        style={isElite ? {} : { color }}
-      >
-        {label}
-      </span>
+      <div className="flex flex-col items-center mt-1">
+        <span className="text-xs font-semibold text-gray-700">{title}</span>
+        <span
+          className={`text-[10px] font-semibold px-2 rounded-full mt-0.5 ${
+            isElite
+              ? 'bg-indigo-50 text-indigo-700 border border-indigo-100'
+              : score >= 80
+                ? 'bg-green-50 text-green-700 border border-green-100'
+                : score >= 60
+                  ? 'bg-amber-50 text-amber-700 border border-amber-100'
+                  : 'bg-red-50 text-red-700 border border-red-100'
+          }`}
+        >
+          {label}
+        </span>
+      </div>
     </div>
   )
 }
@@ -75,6 +82,7 @@ export default function ATSScore({
   matchedKeywords,
   missingKeywords,
   totalKeywords,
+  humanizationScore,
   onImproveAts,
   improving = false,
   autoImproved = false,
@@ -97,7 +105,12 @@ export default function ATSScore({
       </div>
 
       <div className="flex items-center gap-6">
-        <ScoreRing score={score} />
+        <div className="flex gap-4">
+          <ScoreRing score={score} title="ATS Match" />
+          {humanizationScore !== undefined && (
+            <ScoreRing score={humanizationScore} title="Reads Human" />
+          )}
+        </div>
         <div className="flex-1 space-y-2">
           <div className="text-sm text-gray-600">
             <span className="font-semibold text-green-600">{matchedKeywords.length}</span> of{' '}

@@ -151,6 +151,8 @@ export interface AnalyzeResponse {
   cover_letter: CoverLetter
   application_email: ApplicationEmail
   job_analysis: JobAnalysis
+  humanization_score?: number
+  humanization_report?: any
   auto_improved?: boolean
   model_used?: string
   analyses_used?: number

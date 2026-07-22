@@ -14,14 +14,14 @@ const MODEL_META: Record<string, { badge: string; color: string; icon: ReactNode
     color: 'text-zinc-800 bg-zinc-100 border-zinc-200/80',
     icon: <Star className="w-3 h-3" />,
   },
-  qwen: {
-    badge: 'Fast',
-    color: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+  gpt: {
+    badge: 'Premium',
+    color: 'text-violet-700 bg-violet-50 border-violet-200',
     icon: <Zap className="w-3 h-3" />,
   },
-  deepseek: {
-    badge: 'Precise',
-    color: 'text-blue-700 bg-blue-50 border-blue-200',
+  kimi: {
+    badge: 'Fast',
+    color: 'text-emerald-700 bg-emerald-50 border-emerald-200',
     icon: <Cpu className="w-3 h-3" />,
   },
 }

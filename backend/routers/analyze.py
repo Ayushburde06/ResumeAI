@@ -26,6 +26,7 @@ from services.ai_service import (
     suggest_job_search_params,
 )
 from services.ats_engine import compute_ats_score
+from services.humanization_engine import compute_humanization_score
 from services.quality_checks import assess_resume_quality
 from services.pdf_generator import generate_pdf
 from services.latex_generator import generate_latex
@@ -41,6 +42,8 @@ class AnalyzeResponse(BaseModel):
     total_keywords: int
     ats_validation: dict | None = None
     quality_report: dict | None = None
+    humanization_score: int | None = None
+    humanization_report: dict | None = None
     cover_letter: dict
     application_email: dict
     job_analysis: dict
@@ -58,6 +61,7 @@ class SuggestJobSearchResponse(BaseModel):
 class ExportRequest(BaseModel):
     resume: dict
     template: str = "modern"
+    jd_keywords: list[str] = []
 
 
 class ImproveATSRequest(BaseModel):
@@ -249,6 +253,8 @@ async def analyze(
         },
     )
 
+    human_result = compute_humanization_score(tailored_resume)
+
     # ── Post-analysis: increment count + auto-save history ──────────────────
     analyses_used = 0
     is_premium = False
@@ -296,6 +302,8 @@ async def analyze(
             "formatting_report": quality_report["formatting_report"],
         },
         quality_report=quality_report,
+        humanization_score=human_result.score,
+        humanization_report=human_result.dict(),
         auto_improved=auto_improved,
         model_used=model_id or "",
         analyses_used=analyses_used,
@@ -351,11 +359,17 @@ async def export_pdf(
     _user: User = Depends(require_user),
 ):
     try:
-        # Run in a thread pool — generate_pdf uses Playwright which needs its
-        # own ProactorEventLoop; running it via run_in_executor gives it a
-        # clean thread separate from FastAPI's event loop.
-        loop = asyncio.get_event_loop()
-        pdf_bytes = await loop.run_in_executor(None, generate_pdf, body.resume, body.template)
+        # WeasyPrint is CPU-bound and synchronous; run_in_executor keeps the
+        # FastAPI event loop free while the PDF renders (~0.5-2s).
+        loop = asyncio.get_running_loop()
+        import functools
+        pdf_fn = functools.partial(
+            generate_pdf,
+            body.resume,
+            body.template,
+            body.jd_keywords or None,
+        )
+        pdf_bytes = await loop.run_in_executor(None, pdf_fn)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:

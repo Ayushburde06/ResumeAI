@@ -1,9 +1,14 @@
 import os
+from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
 
 import bcrypt
+from dotenv import load_dotenv
 from jose import JWTError, jwt
+
+env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
 _raw_secret = os.environ.get("JWT_SECRET", "")
 if not _raw_secret or _raw_secret == "CHANGE_THIS_TO_A_RANDOM_64_CHAR_HEX_STRING":

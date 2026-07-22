@@ -1,7 +1,9 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+env_path = Path(__file__).resolve().parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
 # ── Security: validate all secrets before anything else starts ────────────────
 from startup_check import run as _check_secrets
@@ -76,6 +78,18 @@ ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+from sqlalchemy.exc import IntegrityError
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(IntegrityError)
+async def sqlalchemy_integrity_error_handler(request: Request, exc: IntegrityError):
+    print(f"Database Integrity Error: {exc}")
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "A database conflict occurred (e.g., this record already exists)."},
+    )
+
 # SlowAPIMiddleware enforces per-route limits and adds standard rate-limit headers
 app.add_middleware(SlowAPIMiddleware)
 
@@ -87,6 +101,16 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    import traceback
+    print(f"❌ [500 ERROR] {request.method} {request.url.path}: {exc}")
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal Server Error: {str(exc)}"},
+    )
+
 # ── Request body size limiter (non-upload routes) ─────────────────────────────
 _MAX_JSON_BODY = 512 * 1024  # 512 KB — enough for any resume JSON
 
@@ -96,12 +120,15 @@ async def limit_json_body_size(request: Request, call_next) -> Response:
     # Only cap JSON bodies; file uploads are capped inside their own router
     if "multipart/form-data" not in content_type:
         content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > _MAX_JSON_BODY:
-            from fastapi.responses import JSONResponse
-            return JSONResponse(
-                status_code=413,
-                content={"detail": "Request body too large."},
-            )
+        if content_length:
+            try:
+                if int(content_length) > _MAX_JSON_BODY:
+                    return JSONResponse(
+                        status_code=413,
+                        content={"detail": "Request body too large."},
+                    )
+            except ValueError:
+                pass
     return await call_next(request)
 
 
@@ -153,11 +180,16 @@ async def _warmup_rag():
         print(f"[RAG] Warmup skipped: {e}")
 
 
+@app.get("/")
+@app.get("/api")
+async def root():
+    return {"message": "ResumeAI API is running", "status": "ok", "version": "2.0.0"}
 
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
 
 
 

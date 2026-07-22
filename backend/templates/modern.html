@@ -25,7 +25,7 @@
   .name {
     font-size: 20pt;
     font-weight: 700;
-    color: #0f4c81;
+    color: #000000;
     letter-spacing: -0.5px;
     margin-bottom: 4px;
     line-height: 1.1;
@@ -35,23 +35,19 @@
     justify-content: center;
     align-items: center;
     flex-wrap: wrap;
+    gap: 2px 14px;
     font-size: inherit;
     color: #4b5563;
     line-height: 1.4;
-    margin-bottom: 12px;
+    margin-bottom: 6px;
   }
+
+  /* Contact item */
   .contact-item {
     display: inline-flex;
     align-items: center;
     white-space: nowrap;
     margin: 2px 0;
-  }
-  .contact-item + .contact-item::before {
-    content: "|";
-    color: #cbd5e1;
-    margin-left: 8px;
-    margin-right: 8px;
-    font-weight: 300;
   }
   .contact-item a {
     color: #4b5563;
@@ -59,12 +55,12 @@
   }
   .contact-item a:hover {
     text-decoration: underline;
-    color: #0f4c81;
+    color: #000000;
   }
   .contact-icon {
     width: 9.5pt;
     height: 9.5pt;
-    fill: #0f4c81;
+    fill: #000000;
     display: inline-block;
     vertical-align: middle;
     margin-right: 3.5px;
@@ -73,15 +69,15 @@
   /* Sections */
   .section {
     margin-bottom: 8px;
-    page-break-inside: avoid;
+    page-break-inside: auto;
   }
   .entry {
-    page-break-inside: avoid;
+    page-break-inside: auto;
   }
   .section-title {
     font-size: 10pt;
     font-weight: 700;
-    color: #0f4c81;
+    color: #000000;
     border-bottom: 1.5px solid #cbd5e1;
     padding-bottom: 2px;
     margin-bottom: 6px;
@@ -135,7 +131,7 @@
     font-size: inherit;
     color: #1f2937;
     line-height: inherit;
-    text-align: justify;
+    text-align: left;
   }
   strong {
     font-weight: 700;
@@ -195,7 +191,7 @@
   }
   .project-link-btn:hover {
     text-decoration: underline;
-    color: #0f4c81;
+    color: #000000;
   }
   .link-icon {
     width: 8.5pt;
@@ -206,7 +202,7 @@
     margin-right: 3px;
   }
   .project-link-btn:hover .link-icon {
-    fill: #0f4c81;
+    fill: #000000;
   }
 </style>
 </head>
@@ -379,12 +375,12 @@
     {% for edu in resume.education %}
     <div class="entry">
       <div class="entry-row">
-        <div class="entry-left">{{ edu.institution }}</div>
+        <div class="entry-left">{{ edu.institution | bold }}</div>
         <div class="entry-right">{{ edu.graduation_year }}</div>
       </div>
       <div class="entry-row" style="margin-bottom: 2px;">
         <div class="entry-sub">
-          {{ edu.degree }}{% if edu.gpa %} &nbsp;–&nbsp; CGPA: {{ edu.gpa }}{% endif %}
+          {{ edu.degree | bold }}{% if edu.gpa %} &nbsp;–&nbsp; CGPA: {{ edu.gpa }}{% endif %}
         </div>
         <div class="entry-right-loc">{% if edu.location %}{{ edu.location }}{% endif %}</div>
       </div>

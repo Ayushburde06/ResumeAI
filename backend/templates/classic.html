@@ -35,7 +35,7 @@
   }
 
   /* Section */
-  .section { margin-bottom: 4px; page-break-inside: avoid; }
+  .section { margin-bottom: 4px; page-break-inside: auto; }
   .section-title {
     font-size: inherit;
     font-weight: normal;
@@ -51,10 +51,10 @@
   a { color: #000; text-decoration: underline; }
 
   /* Summary */
-  .summary { font-size: inherit; text-align: justify; }
+  .summary { font-size: inherit; text-align: left; }
 
   /* Entry rows (edu / experience) */
-  .entry { margin-bottom: 4px; page-break-inside: avoid; }
+  .entry { margin-bottom: 4px; page-break-inside: auto; }
   .entry-row {
     display: flex;
     justify-content: space-between;
@@ -76,7 +76,7 @@
   .bullets { margin-top: 2px; padding-left: 20px; list-style: none; }
   .bullets li {
     font-size: 8.5pt;
-    text-align: justify;
+    text-align: left;
     margin-bottom: 1px;
     position: relative;
   }
@@ -96,7 +96,7 @@
   .project-bullets li { font-size: 8.5pt; margin-bottom: 1px; line-height: 1.3; }
 
   /* Skills */
-  .skill-row { font-size: 8.5pt; margin-bottom: 2px; text-align: justify; }
+  .skill-row { font-size: 8.5pt; margin-bottom: 2px; text-align: left; }
 
   /* Certifications */
   .cert-list { padding-left: 12px; }
@@ -137,11 +137,11 @@
   {% for edu in resume.education %}
   <div class="entry">
     <div class="entry-row">
-      <span class="entry-main">• {{ edu.institution }}</span>
+      <span class="entry-main">• {{ edu.institution | bold }}</span>
       <span class="entry-right">{% if edu.location %}{{ edu.location }}{% endif %}</span>
     </div>
     <div class="entry-sub">
-      <span>{{ edu.degree }}{% if edu.gpa %} · GPA: {{ edu.gpa }}{% endif %}</span>
+      <span>{{ edu.degree | bold }}{% if edu.gpa %} · GPA: {{ edu.gpa }}{% endif %}</span>
       <span>{{ edu.graduation_year }}</span>
     </div>
   </div>

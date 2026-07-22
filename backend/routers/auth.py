@@ -1,10 +1,13 @@
 import os
 import re
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -51,6 +54,11 @@ class RegisterRequest(BaseModel):
     name: str
     email: EmailStr
     password: str
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, v: str) -> str:
+        return v.lower().strip() if isinstance(v, str) else v
 
 
 class LoginRequest(BaseModel):
@@ -111,7 +119,8 @@ def register(request: Request, body: RegisterRequest, db: Session = Depends(get_
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
     if len(body.password) > 128:
         raise HTTPException(status_code=400, detail="Password must be 128 characters or fewer.")
-    if db.query(User).filter(User.email == body.email).first():
+    email_lower = body.email.lower().strip()
+    if db.query(User).filter(User.email == email_lower).first():
         raise HTTPException(status_code=400, detail="An account with this email already exists.")
 
     # Strip any HTML tags from name to prevent stored XSS via non-React renderers
@@ -119,7 +128,6 @@ def register(request: Request, body: RegisterRequest, db: Session = Depends(get_
     if not name:
         raise HTTPException(status_code=400, detail="Name contains invalid characters.")
 
-    email_lower = body.email.lower().strip()
     user = User(
         name=name,
         email=email_lower,
@@ -149,46 +157,56 @@ def register(request: Request, body: RegisterRequest, db: Session = Depends(get_
 @router.post("/login", response_model=AuthResponse)
 @limiter.limit("10/minute")
 def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == body.email.lower().strip()).first()
-    if not user or not verify_password(body.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    try:
+        user = db.query(User).filter(User.email == body.email.lower().strip()).first()
+        if not user or not verify_password(body.password, user.hashed_password):
+            raise HTTPException(status_code=401, detail="Invalid email or password.")
 
-    # Always fetch live stats so the frontend gets the real usage count on login
-    # Admin accounts are auto-upgraded to premium on every login (idempotent)
-    if _is_admin(user.email):
-        stats = _ensure_premium(user.id, db)
-    else:
-        stats = db.query(UserStats).filter(UserStats.user_id == user.id).first()
+        # Always fetch live stats so the frontend gets the real usage count on login
+        # Admin accounts are auto-upgraded to premium on every login (idempotent)
+        if _is_admin(user.email):
+            stats = _ensure_premium(user.id, db)
+        else:
+            stats = db.query(UserStats).filter(UserStats.user_id == user.id).first()
 
-    analysis_count = stats.analysis_count if stats else 0
-    is_premium = stats.is_premium if stats else False
+        analysis_count = stats.analysis_count if stats else 0
+        is_premium = stats.is_premium if stats else False
 
-    token = create_access_token(user.id, user.email)
-    return AuthResponse(
-        token=token,
-        user=UserOut(
-            id=user.id, name=user.name, email=user.email,
-            analyses_used=analysis_count,
-            analyses_limit=FREE_LIMIT,
-            is_premium=is_premium,
-        ),
-    )
+        token = create_access_token(user.id, user.email)
+        return AuthResponse(
+            token=token,
+            user=UserOut(
+                id=user.id, name=user.name, email=user.email,
+                analyses_used=analysis_count,
+                analyses_limit=FREE_LIMIT,
+                is_premium=is_premium,
+            ),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in /login: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error during login.")
 
 
 @router.get("/me")
 @limiter.limit("60/minute")
 def me(request: Request, user: User = Depends(require_user), db: Session = Depends(get_db)):
-    if _is_admin(user.email):
-        stats = _ensure_premium(user.id, db)
-    else:
-        stats = db.query(UserStats).filter(UserStats.user_id == user.id).first()
-    analysis_count = stats.analysis_count if stats else 0
-    is_premium = stats.is_premium if stats else False
-    return {
-        "id": user.id,
-        "name": user.name,
-        "email": user.email,
-        "analyses_used": analysis_count,
-        "analyses_limit": FREE_LIMIT,
-        "is_premium": is_premium,
-    }
+    try:
+        if _is_admin(user.email):
+            stats = _ensure_premium(user.id, db)
+        else:
+            stats = db.query(UserStats).filter(UserStats.user_id == user.id).first()
+        analysis_count = stats.analysis_count if stats else 0
+        is_premium = stats.is_premium if stats else False
+        return {
+            "id": user.id,
+            "name": user.name,
+            "email": user.email,
+            "analyses_used": analysis_count,
+            "analyses_limit": FREE_LIMIT,
+            "is_premium": is_premium,
+        }
+    except Exception as e:
+        logger.error(f"Error in /me: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error fetching user data.")

@@ -10,6 +10,7 @@ import type { AgentAnalyzeResult, ModelInfo, InterviewPrep } from '../types'
 import ResumePreview from './ResumePreview'
 import ATSScore from './ATSScore'
 import ModelSelector from './ModelSelector'
+import JobSearch from './JobSearch'
 import { fetchModels, improveAtsScore, submitFeedback } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 
@@ -243,8 +244,16 @@ export default function UnifiedWorkspace({
                 </div>
               </div>
             ) : (
-              <div className="text-sm text-zinc-500 p-4 text-center bg-zinc-50 rounded-lg">
-                Job search integration coming soon. Use paste for now.
+              <div className="pt-2">
+                <JobSearch
+                  resumeFile={file}
+                  modelId={selectedModel}
+                  onSelect={(jdText) => {
+                    setJd(jdText)
+                    setJdMode('paste')
+                    toast.success('Job description imported!')
+                  }}
+                />
               </div>
             )}
           </div>
@@ -331,6 +340,7 @@ export default function UnifiedWorkspace({
                 onImproveAts={handleImproveAts}
                 improving={optimizingAts}
                 autoImproved={result.auto_improved}
+                humanizationScore={result.humanization_score}
               />
 
               {/* ── Match Analysis ── */}
@@ -456,7 +466,8 @@ export default function UnifiedWorkspace({
               <ResumePreview 
                 resume={result.tailored_resume} 
                 atsScore={result.ats_score}
-                onResumeChange={(updated) => setResult({...result, tailored_resume: updated})} 
+                onResumeChange={(updated) => setResult({...result, tailored_resume: updated})}
+                jdKeywords={result.matched_keywords}
               />
 
               {/* ── Cover Letter ── */}
