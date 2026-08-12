@@ -1,16 +1,13 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useNavigate } from 'react-router-dom'
 import { Upload, FileText, X, Loader2, Mail, ChevronDown, ChevronUp, Mic, MessageSquare, Link as LinkIcon, Lightbulb, Target, ThumbsUp, ThumbsDown } from 'lucide-react'
 import { useDropzone } from 'react-dropzone'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
 import type { AgentAnalyzeResult, ModelInfo, InterviewPrep } from '../types'
 import ResumePreview from './ResumePreview'
 import ATSScore from './ATSScore'
-import ModelSelector from './ModelSelector'
 import { ErrorBoundary } from './ErrorBoundary'
 import JobSearch from './JobSearch'
 import { agentAnalyze, fetchModels, submitFeedback } from '../lib/api'
@@ -35,14 +32,13 @@ export default function UnifiedWorkspace({
   initialResult = null,
   initialInterviewPrep = null,
 }: UnifiedWorkspaceProps) {
-  const navigate = useNavigate()
   const { refreshUser } = useAuth()
   const [file, setFile] = useState<File | null>(initialFile)
   const [jd, setJd] = useState(initialJd)
   const [jdMode, setJdMode] = useState<'paste' | 'search'>('paste')
   const [result, setResult] = useState<AgentAnalyzeResult | null>(initialResult)
   const [agentState, setAgentState] = useState<AgentState>('idle')
-  const [models, setModels] = useState<ModelInfo[]>([])
+  const [, setModels] = useState<ModelInfo[]>([])
   const [selectedModel, setSelectedModel] = useState('')
   const [openPanel, setOpenPanel] = useState<string | null>(null)
   const [feedbackRating, setFeedbackRating] = useState<'up' | 'down' | null>(null)
