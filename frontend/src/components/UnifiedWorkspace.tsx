@@ -320,10 +320,46 @@ export default function UnifiedWorkspace({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
             >
-              <div className="relative mb-6">
-                <div className="absolute inset-0 bg-brand/20 blur-xl rounded-full" />
-                <div className="relative bg-white border border-brand-100 p-4 rounded-2xl shadow-sm">
-                  <Loader2 className="w-8 h-8 text-brand animate-spin" />
+              <div className="relative mb-10 mt-6 flex justify-center items-center h-20 w-20">
+                {/* Agentic Pulse Rings */}
+                {[...Array(3)].map((_, i) => (
+                  <motion.div
+                    key={`pulse-${i}`}
+                    className="absolute inset-0 rounded-full border-2 border-brand/20"
+                    initial={{ opacity: 1, scale: 0.5 }}
+                    animate={{ opacity: 0, scale: 2 }}
+                    transition={{
+                      duration: 2,
+                      repeat: Infinity,
+                      delay: i * 0.6,
+                      ease: "easeOut",
+                    }}
+                  />
+                ))}
+                
+                {/* Central Document Icon with Scanner */}
+                <div className="relative bg-white border border-brand-100 w-16 h-20 rounded-xl shadow-lg flex flex-col p-2.5 gap-1.5 overflow-hidden z-10">
+                  {/* Skeleton lines */}
+                  <div className="h-1.5 w-full bg-brand-100 rounded" />
+                  <div className="h-1.5 w-3/4 bg-brand-100 rounded" />
+                  <div className="h-1.5 w-5/6 bg-brand-100 rounded" />
+                  <div className="h-1.5 w-full bg-brand-100 rounded" />
+                  <div className="h-1.5 w-2/3 bg-brand-100 rounded" />
+                  
+                  {/* Moving Scanner Line */}
+                  <motion.div
+                    className="absolute left-0 right-0 h-[2px] bg-blue-500 shadow-[0_0_8px_2px_rgba(59,130,246,0.5)]"
+                    initial={{ top: 0, opacity: 0 }}
+                    animate={{ 
+                      top: ['0%', '100%', '0%'],
+                      opacity: [0, 1, 1, 0]
+                    }}
+                    transition={{ 
+                      duration: 2, 
+                      ease: 'linear', 
+                      repeat: Infinity 
+                    }}
+                  />
                 </div>
               </div>
               <h3 className="text-lg font-semibold text-zinc-900 mb-2">Analyzing and Optimizing</h3>
@@ -428,24 +464,7 @@ export default function UnifiedWorkspace({
                     )}
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500 mb-2">ATS compatibility</p>
-                      <p className="text-sm text-zinc-700 leading-6">{qualityReport.ats_compatibility_report}</p>
-                    </div>
-                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500 mb-2">Formatting</p>
-                      <p className="text-sm text-zinc-700 leading-6">{qualityReport.formatting_report}</p>
-                    </div>
-                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500 mb-2">Grammar</p>
-                      <p className="text-sm text-zinc-700 leading-6">{qualityReport.grammar_report}</p>
-                    </div>
-                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500 mb-2">Confidence</p>
-                      <p className="text-sm text-zinc-700 leading-6">{qualityReport.confidence_report}</p>
-                    </div>
-                  </div>
+
 
                   {hasQualityChanges && (
                     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">

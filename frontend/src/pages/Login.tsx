@@ -171,7 +171,7 @@ export default function Login() {
             </p>
 
             <p className="text-center text-zinc-400 text-xs mt-4">
-              By continuing, you agree to our Terms of Service.
+              By continuing, you agree to our <Link to="/terms" className="underline hover:text-zinc-300">Terms of Service</Link>.
             </p>
           </div>
         </div>

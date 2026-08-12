@@ -563,6 +563,16 @@ EXISTING RESUME:
 JOB ANALYSIS:
 {job_analysis}
 
+CERTIFICATIONS RULE — CRITICAL:
+Copy every certification entry EXACTLY from the original resume.
+The "name", "issuer", and "year" fields MUST be preserved verbatim.
+Never empty these fields. If the original says "Udemy" keep "Udemy".
+If the original has no issuer, leave the field as it was — do not replace it with "".
+
+SKILLS TAXONOMY RULE:
+Docker, docker-compose, and container tools go under "DevOps" — never under "Cloud".
+Use "REST APIs" as the canonical form everywhere — never "RESTful API" or "REST API".
+
 Return JSON with EXACTLY this shape:
 {{
   "personal_info": {{
@@ -613,33 +623,55 @@ Return the improved resume with the EXACT same JSON shape including the 7 skills
 {{"personal_info": ..., "summary": ..., "experience": ..., "education": ..., "skills": {{"Languages": [...], "Frontend": [...], "Backend": [...], "Databases": [...], "Cloud & DevOps": [...], "Tools": [...], "Concepts": [...]}}, "certifications": ..., "projects": ...}}"""
 
 
-COVER_LETTER_SYSTEM = """You write cover letters for fresh graduates and early-career developers.
-Your letters are SHORT, real, and specific. A recruiter reads one in 20 seconds and thinks "this person fits."
+COVER_LETTER_SYSTEM = """You write cover letters. Keep them human. A recruiter should read this and think a real person wrote it.
 
-STRUCTURE — exactly 3 paragraphs, nothing more:
+STRUCTURE — exactly 3 paragraphs:
 
-P1 — WHO + WHY THIS ROLE (2 sentences):
-- Sentence 1: one line on who the candidate is — their degree or their most recent role, plainly stated.
-- Sentence 2: one specific thing from the JD that made them apply — name it (a technology, a product type, a problem the company solves). Not "I am interested in this opportunity."
+P1 — WHO + WHY THIS COMPANY (2 sentences):
+- One plain sentence on who the candidate is (their role or degree).
+- One sentence on why THIS company specifically — name the company (find it in the JD), mention what they build or the problem they solve. Not a generic "I am interested in this role."
 
-P2 — PROOF (3 sentences max):
-- Name 2 real projects or experiences from the resume. For each say what was built and which JD requirement it covers.
-- Be blunt and factual. "Built X using Y, which covers Z requirement from the JD" is better than vague claims.
+P2 — PROOF (2-3 sentences):
+- Name 2 specific things the candidate built (projects or work experience). State what they built, the tech they used, and how it maps to what the JD needs.
+- No vague claims. No adjectives. Just facts.
 
 P3 — CLOSE (1 sentence):
-- State one concrete thing the candidate brings to this team. End with what they want (a quick call, an interview).
-- No "thank you for your time." No "I look forward to hearing from you." Just a clean, direct sentence.
+- A short, direct ask for a call or interview. One sentence.
+- Sign off: "Regards,\n{candidate_name}"
 
-ABSOLUTE BANS — if any of these words appear, rewrite:
+FORMAT — the body must open with the date and a greeting:
+{today_date}
+
+Dear Hiring Manager,
+
+[paragraph 1]
+
+[paragraph 2]
+
+[paragraph 3]
+
+Regards,
+{candidate_name}
+Portfolio: {portfolio_url}
+GitHub: {github_url}
+
+HARD BANS — any of these = rewrite:
 passionate, excited, thrilled, eager, leverage, synergy, spearhead, results-driven, team player,
 quick learner, dynamic, hardworking, proven track record, I am writing to apply, I am pleased,
-I would like to express, I look forward to hearing from you, Thank you for your consideration.
+I would like to express, I look forward to hearing from you, Thank you for your consideration,
+I believe, I feel, I think, as a result of, in an effort to, it should be noted.
 
-TONE: plain everyday English. Short sentences. No adjectives about yourself — let the work prove it.
-WORD COUNT: 120–150 words. Hard limit. Count before returning.
+TONE: Plain English. Short sentences. No adjectives about the candidate — let the facts speak.
+WORD COUNT: 120–160 words (body only, excluding header). Count before returning.
 Return ONLY valid JSON — no markdown, no extra keys."""
 
 COVER_LETTER_PROMPT = """Write a cover letter for {name} applying for {job_title}.
+
+Today's date: {today_date}
+
+CANDIDATE LINKS (include in sign-off):
+Portfolio: {portfolio}
+GitHub: {github}
 
 RESUME:
 Summary: {summary}
@@ -647,57 +679,65 @@ Experience: {experience}
 Projects: {projects}
 Skills: {skills}
 
-JOB REQUIREMENTS (from JD analysis — map resume work to these):
+RAW JD TEXT (first 800 chars — extract the company name from this):
+{jd_snippet}
+
+JOB ANALYSIS (structured):
 {job_analysis}
 
-TEMPLATE GUIDANCE (align writing style and tone with these examples):
-{rag_context}
-
-CHECKLIST before returning:
-[ ] Exactly 3 paragraphs
-[ ] 120–150 words total
-[ ] 2 real project/experience names from resume above
-[ ] 1 specific JD requirement or tech named in P2
+BEFORE RETURNING CHECK:
+[ ] Body opens with date, then blank line, then "Dear Hiring Manager,"
+[ ] P1 names the company from the JD
+[ ] P2 names 2 real projects/experiences with specific tech
+[ ] P3 is a direct one-sentence ask
+[ ] Sign-off is "Regards,\\n{name}" with portfolio and GitHub on separate lines
 [ ] Zero banned words
-[ ] Sounds like a person, not a template
+[ ] 120-160 words in the body
 
 Return JSON:
 {{
   "subject_line": "Application for {job_title} — {name}",
-  "body": "paragraph 1\\n\\nparagraph 2\\n\\nparagraph 3"
+  "body": "{today_date}\\n\\nDear Hiring Manager,\\n\\nparagraph 1\\n\\nparagraph 2\\n\\nparagraph 3\\n\\nRegards,\\n{name}\\nPortfolio: {portfolio}\\nGitHub: {github}"
 }}"""
 
-APPLICATION_EMAIL_SYSTEM = """You write short, professional, and high-impact cold application emails to hiring managers or recruiters.
-Your emails are simple, direct, and under 100 words. They immediately state the candidate's core stack and relevance to the position.
 
-STRUCTURE — exactly 3 paragraphs:
-P1: Introduce yourself and state the exact role you're applying for. (1-2 sentences)
-P2: Call out 1-2 core technologies or projects from your resume that directly align with the job description's main requirements. Keep it factual and brief. (1-2 sentences)
-P3: Call to action. Ask if they have 5 minutes for a brief call, or suggest reviewing the attached resume. Keep it clean and polite. (1 sentence)
+APPLICATION_EMAIL_SYSTEM = """You write job application emails. Keep them short and human.
+A hiring manager should read this and immediately understand who the person is and why they applied.
 
-ABSOLUTE BANS:
-Do NOT use overly enthusiastic words: passionate, excited, thrilled, eager, leverage, synergy, spearhead, results-driven, team player, quick learner.
-No "thank you for your time." No "I look forward to hearing from you." Just a clean, direct sign-off.
+STRUCTURE:
+Line 1: Greeting — "Dear [Hiring Team]," or "Dear [Recruiter],"
+Blank line.
+Paragraph 1 (2 sentences): Who you are and the exact role you're applying for.
+Paragraph 2 (2 sentences): 1-2 specific things from your resume that match what the JD needs. Name the project or tech directly.
+Paragraph 3 (1 sentence): A direct ask — can they take a quick call, or please find the resume attached.
+Blank line.
+Sign-off: "Regards, {name}" — then on a new line: portfolio link and GitHub link.
 
-TONE: Professional, confident, concise, and human-written. Simple everyday English.
-Return ONLY valid JSON — no markdown, no extra keys."""
+HARD BANS:
+passionate, excited, thrilled, eager, leverage, synergy, spearhead, results-driven, team player, quick learner.
+No "thank you for your time." No "I look forward to hearing from you."
 
-APPLICATION_EMAIL_PROMPT = """Write a short job application email for {name} applying for {job_title}.
+TONE: Direct, professional, plain English. 80-120 words total.
+Return ONLY valid JSON."""
+
+APPLICATION_EMAIL_PROMPT = """Write a job application email for {name} applying for {job_title}.
 
 RESUME SUMMARY: {summary}
 KEY SKILLS: {skills}
-EXPERIENCE/PROJECT SUMMARY: {experience_projects}
+EXPERIENCE/PROJECTS: {experience_projects}
+PORTFOLIO: {portfolio}
+GITHUB: {github}
 
-JOB DESCRIPTION SUMMARY:
+JOB SUMMARY:
 {job_analysis}
 
-COMMUNICATION PATTERNS (align tone and style with these best practices):
+COMMUNICATION EXAMPLES (style reference only):
 {rag_context}
 
-Return JSON with this exact shape:
+Return JSON:
 {{
   "subject_line": "...",
-  "body": "..."
+  "body": "Dear Hiring Team,\\n\\n[paragraph 1]\\n\\n[paragraph 2]\\n\\n[paragraph 3]\\n\\nRegards,\\n{name}\\nPortfolio: {portfolio}\\nGitHub: {github}"
 }}"""
 
 
@@ -867,6 +907,19 @@ def _scan_and_rephrase_banned_phrases(text: str) -> str:
     return re.sub(r" +", " ", result).strip()
 
 
+def _capitalize_sentences(text: str) -> str:
+    """Issue 5: Ensure every sentence in text starts with a capital letter.
+    Handles the common case of 'word. next word' → 'word. Next word'.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return text or ""
+    # Capitalize the very first character
+    text = text[0].upper() + text[1:] if text else text
+    # Capitalize the character after '. ', '! ', '? '
+    text = re.sub(r'([.!?]\s+)([a-z])', lambda m: m.group(1) + m.group(2).upper(), text)
+    return text
+
+
 def _verify_numeric_metrics(text: str, original_text: str) -> str:
     """Verify numeric claims in AI output against original text. Strips unverified numbers."""
     if not isinstance(text, str) or not original_text:
@@ -954,6 +1007,7 @@ def _clean_resume(resume: dict, original_text: str | None = None) -> dict:
         if original_text:
             summary = _verify_numeric_metrics(summary, original_text)
         summary = smart_truncate(summary, 420)
+        summary = _capitalize_sentences(summary)   # Issue 5: auto-capitalize sentence starts
         resume["summary"] = _validate_bold_markers(summary)
 
     # ── Step 3: Match & Filter Fabricated Entries ───────────────────────────
@@ -975,6 +1029,9 @@ def _clean_resume(resume: dict, original_text: str | None = None) -> dict:
             "machine learning": "ai / ml",
             "agile": "concepts",
             "methodologies": "concepts",
+            # Issue 10: Docker belongs in devops, never cloud
+            "docker": "devops",
+            "containers": "devops",
         }
 
         normalized_skills = {}
@@ -1038,6 +1095,9 @@ def _clean_resume(resume: dict, original_text: str | None = None) -> dict:
                     bullet = _verify_numeric_metrics(bullet, original_text)
                 bullet = smart_truncate(bullet, 180)
                 bullet = _validate_bold_markers(bullet)
+                # Issue 9: Detect mid-sentence truncation
+                if bullet and not bullet.rstrip().endswith(('.', '!', '?', '"', "'")):
+                    logger.warning("Truncated experience bullet detected: '%s...'", bullet[:60])
                 if bullet:
                     cleaned_bullets.append(bullet)
             exp["bullets"] = cleaned_bullets
@@ -1085,6 +1145,9 @@ def _clean_resume(resume: dict, original_text: str | None = None) -> dict:
                 bullet = _verify_numeric_metrics(bullet, original_text)
             bullet = smart_truncate(bullet, 180)
             bullet = _validate_bold_markers(bullet)
+            # Issue 9: Detect mid-sentence truncation
+            if bullet and not bullet.rstrip().endswith(('.', '!', '?', '"', "'")):
+                logger.warning("Truncated project bullet detected: '%s...'", bullet[:60])
             if bullet:
                 cleaned_bullets.append(bullet)
         proj["bullets"] = cleaned_bullets
@@ -1238,12 +1301,20 @@ def generate_cover_letter(
     model_id: str | None = None,
     rag_context: str = "",
 ) -> dict:
+    """Generate a human cover letter with proper date header, company name, and portfolio links.
+    Issues fixed: 1 (generic/robotic), proper header, company name from JD.
+    """
+    import datetime
     client, model = _get_cheap_client(model_id)
     personal = tailored_resume.get("personal_info", {})
     name = personal.get("name", "the candidate")
+    portfolio = personal.get("website", "") or personal.get("portfolio", "")
+    github = personal.get("github", "")
     summary = tailored_resume.get("summary", "")
     job_title = job_analysis.get("job_title", "the position")
-    company_type = job_analysis.get("company_type", "")
+
+    # Today's date for the letter header
+    today_date = datetime.date.today().strftime("%B %d, %Y")
 
     # Build concise experience string (company + title + top 2 bullets)
     experience_lines = []
@@ -1255,7 +1326,7 @@ def generate_cover_letter(
         )
     experience = "\n".join(experience_lines) or "(none)"
 
-    # Build concise projects string (name + first bullet of description)
+    # Build concise projects string
     project_lines = []
     for proj in tailored_resume.get("projects", [])[:3]:
         desc = proj.get("description", "")
@@ -1264,7 +1335,7 @@ def generate_cover_letter(
         project_lines.append(f"{proj.get('name', '')}: {first_bullet} [{tech}]")
     projects = "\n".join(project_lines) or "(none)"
 
-    # Build top skills string — supports both old (technical/tools) and new 5-category schema
+    # Build top skills string
     skills_data = tailored_resume.get("skills", {})
     all_skills = (
         skills_data.get("languages", [])
@@ -1275,6 +1346,9 @@ def generate_cover_letter(
     )
     top_skills = ", ".join(all_skills[:10])
 
+    # Pass first 800 chars of JD as raw context so model can extract company name
+    jd_snippet = (jd_text or "")[:800]
+
     response = _create_chat_completion(client, model_id,
         model=model,
         messages=[
@@ -1284,18 +1358,21 @@ def generate_cover_letter(
                 "content": COVER_LETTER_PROMPT.format(
                     name=name,
                     job_title=job_title,
-                    company_type=company_type,
+                    today_date=today_date,
+                    portfolio=portfolio or "(not provided)",
+                    github=github or "(not provided)",
                     summary=summary,
                     experience=experience,
                     projects=projects,
                     skills=top_skills,
+                    jd_snippet=jd_snippet or "(not provided)",
                     job_analysis=json.dumps(job_analysis),
                     rag_context=rag_context or "(none)",
                 ),
             },
         ],
         temperature=0.3,
-        max_tokens=4000,
+        max_tokens=700,
         response_format={"type": "json_object"},
     )
     return _parse_json_response(_extract_content(response))
@@ -1308,19 +1385,28 @@ def generate_application_email(
     model_id: str | None = None,
     rag_context: str = "",
 ) -> dict:
+    """Generate a professional application email with greeting, links, and sign-off.
+    Issues fixed: 2 (too short, no greeting, no links).
+    """
     client, model = _get_cheap_client(model_id)
     personal = tailored_resume.get("personal_info", {})
     name = personal.get("name", "the candidate")
+    portfolio = personal.get("website", "") or personal.get("portfolio", "")
+    github = personal.get("github", "")
     summary = tailored_resume.get("summary", "")
     job_title = job_analysis.get("job_title", "the position")
 
     # Build concise experience/projects summary
     exp_proj_lines = []
     for exp in tailored_resume.get("experience", [])[:1]:
-        exp_proj_lines.append(f"Role: {exp.get('title')} at {exp.get('company')}")
+        exp_proj_lines.append(f"{exp.get('title')} at {exp.get('company')}")
     for proj in tailored_resume.get("projects", [])[:2]:
-        exp_proj_lines.append(f"Project: {proj.get('name')}")
-    experience_projects = ", ".join(exp_proj_lines) or "(none)"
+        first_bullet = ""
+        desc = proj.get("description", "")
+        if desc:
+            first_bullet = " — " + desc.split("\n")[0][:80]
+        exp_proj_lines.append(f"{proj.get('name')}{first_bullet}")
+    experience_projects = "\n".join(exp_proj_lines) or "(none)"
 
     skills_data = tailored_resume.get("skills", {})
     all_skills = (
@@ -1344,13 +1430,15 @@ def generate_application_email(
                     summary=summary,
                     skills=top_skills,
                     experience_projects=experience_projects,
+                    portfolio=portfolio or "(not provided)",
+                    github=github or "(not provided)",
                     job_analysis=json.dumps(job_analysis),
                     rag_context=rag_context or "(none)",
                 ),
             },
         ],
         temperature=0.3,
-        max_tokens=300,
+        max_tokens=600,   # Issue 2: was 300 — doubled to allow full email with greeting + sign-off
         response_format={"type": "json_object"},
     )
     return _parse_json_response(_extract_content(response))
@@ -1909,20 +1997,27 @@ def humanize_sections(
     return _parse_json_response(_extract_content(response))
 
 
-LINKEDIN_MESSAGE_SYSTEM = """You write a LinkedIn approach message to ask for a referral.
-Hard limit: 300 characters total (LinkedIn connection note limit).
-Tone: humanized, simple, and professional. You are asking someone at the company for a referral because you are an ideal candidate for their open role.
-Mention: The specific role they are hiring for, and a very brief highlight of the candidate's strongest matching skills/experience that makes them the ideal candidate.
-End with a polite ask to connect or chat about a referral.
-Return ONLY valid JSON."""
+LINKEDIN_MESSAGE_SYSTEM = """You write a LinkedIn connection note asking for a referral. Hard limit: 300 characters.
 
-LINKEDIN_MESSAGE_PROMPT = """Write a LinkedIn referral request note for {name} applying for {job_title} at {company_type}.
+RULES:
+- Open with "Hi there," — NEVER write "Hi [Name]" or "Hi [First Name]" (those are unfilled placeholders).
+- Name the company and the specific role.
+- Include one short fact about the candidate that makes them a fit (a project name or a skill — not a vague claim).
+- End with a polite one-line ask.
+- Sound like a real person, not a template.
+- Return ONLY valid JSON."""
 
-Their top skills to highlight: {top_skills}
-Their most impressive project: {top_project}
+LINKEDIN_MESSAGE_PROMPT = """Write a LinkedIn referral request note for {name} applying for {job_title} at {company_name}.
 
-Return JSON: {{"message": "..."}}
-The message MUST be under 300 characters and sound like a real, polite human asking for a referral."""
+Top skills: {top_skills}
+Strongest project: {top_project}
+
+Return JSON:
+{{
+  "message": "Hi there, ...",
+  "_note": "Replace 'Hi there' with the recruiter's first name if you know it."
+}}
+The message MUST be under 300 characters. Sound like a real person."""
 
 
 @_safe_call
@@ -1930,14 +2025,28 @@ def generate_linkedin_message(
     tailored_resume: dict,
     job_analysis: dict,
     model_id: str | None = None,
+    jd_text: str = "",
 ) -> dict:
-    """Generate a ≤300-char LinkedIn connection request note. Uses cheap model."""
+    """Generate a ≤300-char LinkedIn connection request note. Uses cheap model.
+    Issue 3: Uses 'Hi there,' as the opener — never '[Name]' or '[First Name]' placeholders.
+    Caller should replace 'Hi there,' with the recruiter's actual name if known.
+    """
     client, model = _get_cheap_client(model_id)
 
     personal = tailored_resume.get("personal_info", {})
     name = personal.get("name", "the candidate")
     job_title = job_analysis.get("job_title", "the position")
-    company_type = job_analysis.get("company_type", "")
+
+    # Try to extract company name: prefer job_analysis.company_name, fall back to searching JD
+    company_name = job_analysis.get("company_name", "").strip()
+    if not company_name:
+        # Heuristic: look for "at <Company>" or "<Company> is hiring" in first 400 chars of JD
+        jd_head = (jd_text or "")[:400]
+        match = re.search(
+            r'(?:at|@|from|join|by|with)\s+([A-Z][A-Za-z0-9&.,\s]{1,40}?)(?:\s+is|\s+are|\.|,|\n)',
+            jd_head
+        )
+        company_name = match.group(1).strip() if match else job_analysis.get("company_type", "the company")
 
     skills_data = tailored_resume.get("skills", {})
     top_skills = ", ".join(
@@ -1958,18 +2067,25 @@ def generate_linkedin_message(
                     job_title=job_title,
                     top_skills=top_skills,
                     top_project=top_project,
-                    company_type=company_type,
+                    company_name=company_name,
                 ),
             },
         ],
         temperature=0.2,
-        max_tokens=5000,
+        max_tokens=400,
         response_format={"type": "json_object"},
     )
     result = _parse_json_response(_extract_content(response))
-    # Enforce 300-char limit
-    if isinstance(result.get("message"), str) and len(result["message"]) > 300:
-        result["message"] = result["message"][:297] + "..."
+    # Enforce 300-char limit on message
+    if isinstance(result.get("message"), str):
+        msg = result["message"]
+        # Guarantee no literal placeholder leaks through
+        msg = re.sub(r'\[(?:Name|First\s*Name|Last\s*Name|Recruiter)\]', 'Hi there,', msg, flags=re.IGNORECASE)
+        if len(msg) > 300:
+            msg = msg[:297] + "..."
+        result["message"] = msg
+    # Always emit the user-facing note
+    result.setdefault("_note", "Replace 'Hi there,' with the recruiter's first name if known.")
     return result
 
 

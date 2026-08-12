@@ -1,0 +1,169 @@
+{
+  "personal_info": {
+    "name": "Ayushkumar Burde",
+    "email": "ayushburde156@gmail.com",
+    "phone": "+91-8600820291",
+    "location": "Nagpur, India",
+    "linkedin": "https://linkedin.com/in/ayushkumar6",
+    "github": "https://github.com/Ayushburde06",
+    "website": "https://ayushkumar-portfolio-site.vercel.app/"
+  },
+  "summary": "Full Stack Developer with hands-on experience building REST APIs and production applications using **React JS**, **Node.js**, and **PostgreSQL**. built a client inventory management system and an AI-powered resume builder on **AWS** with **Docker** containerization. Familiar with **Agile Practices**, code reviews, and collaborative development workflows.",
+  "experience": [
+    {
+      "title": "Full Stack Developer",
+      "company": "Freelance",
+      "location": "Remote",
+      "start_date": "Sep 2024",
+      "end_date": "Present",
+      "bullets": [
+        "Built a client inventory management system using **React JS**, **Node.js**, and **PostgreSQL**, handling authentication, **REST APIs**, and database schema design.",
+        "Implemented Prisma ORM for type-safe database migrations, catching schema errors at compile time during rapid iteration cycles.",
+        "Migrated a client application from traditional server hosting to Cloudflare Workers, reducing cold-start latency from **2+ seconds to under 100ms**."
+      ]
+    },
+    {
+      "title": "Software Engineer Intern",
+      "company": "CrystalTech Services Pvt. Ltd.",
+      "location": "Nagpur, India",
+      "start_date": "Jul 2023",
+      "end_date": "Dec 2023",
+      "bullets": [
+        "Delivered **REST APIs** endpoints within the first week using **Node.js** and **Express.js** for three backend service modules.",
+        "Optimized **SQL Server** queries that were timing out under load by implementing proper indexing, reducing average response time by **60%**.",
+        "Diagnosed and resolved a frontend performance issue by fixing missing Redux selectors, eliminating redundant network calls on route changes.",
+        "Contributed to code quality through small, reviewable pull requests and participated in **Agile Practices** including two-week sprint retrospectives using Jira."
+      ]
+    }
+  ],
+  "education": [
+    {
+      "degree": "Master of Computer Applications (MCA)",
+      "institution": "Tulsiramji Gaikwad Patil College of Engineering & Technology",
+      "location": "Nagpur, India",
+      "graduation_year": "2025",
+      "gpa": "CGPA: 6.76/10",
+      "honors": "Co-authored and published a research paper; Participated in UI/UX design competitions"
+    },
+    {
+      "degree": "Bachelor of Computer Applications (BCA)",
+      "institution": "City Premier College, RTM Nagpur University",
+      "location": "Nagpur, India",
+      "graduation_year": "2022",
+      "gpa": "CGPA: 8.45/10",
+      "honors": "Placement Cell Coordinator; Student Body Treasurer; Active in programming competitions"
+    }
+  ],
+  "skills": {
+    "languages": [
+      "JavaScript",
+      "TypeScript",
+      "Python",
+      "Java",
+      "SQL"
+    ],
+    "frontend": [
+      "React JS",
+      "Redux",
+      "HTML",
+      "CSS",
+      "Tailwind CSS",
+      "Responsive Web Design"
+    ],
+    "backend": [
+      "Node.js",
+      "Express.js",
+      "FastAPI",
+      "REST APIs"
+    ],
+    "databases": [
+      "PostgreSQL",
+      "MySQL",
+      "MongoDB",
+      "SQLite",
+      "SQL Server",
+      "Supabase"
+    ],
+    "cloud": [
+      "AWS",
+      "Vercel",
+      "Cloudflare Workers"
+    ],
+    "devops": [
+      "Docker",
+      "Git",
+      "GitHub",
+      "CI/CD"
+    ],
+    "ai / ml": [
+      "AI-assisted Development Tools",
+      "TF-IDF Vectorization"
+    ],
+    "tools": [
+      "Jira",
+      "JWT",
+      "Prisma ORM"
+    ],
+    "concepts": [
+      "Object-Oriented Programming (OOPs)",
+      "Agile Practices",
+      "Code Reviews"
+    ]
+  },
+  "certifications": [
+    {
+      "name": "Complete Python Bootcamp",
+      "issuer": "Udemy",
+      "year": ""
+    },
+    {
+      "name": "Django Masterclass",
+      "issuer": "Udemy",
+      "year": ""
+    }
+  ],
+  "projects": [
+    {
+      "name": "Resume AI",
+      "bullets": [
+        "Built an AI-powered resume builder that generates tailored resumes and calculates an ATS keyword-matching score with auto-rewrite functionality.",
+        "Implemented a retrieval-augmented generation system in **FastAPI** using TF-IDF vectorization to pull relevant HR guidelines before generating content.",
+        "Reduced generation time from **75s to under 30s** by parallelizing independent tasks with Python thread pools; integrated **JWT** auth and SQLAlchemy for user persistence.",
+        "Deployed frontend to Vercel and backend to **AWS EC2** inside **Docker** with configured volumes, environment secrets, and CORS headers."
+      ],
+      "description": "Built an AI-powered resume builder that generates tailored resumes and calculates an ATS keyword-matching score with auto-rewrite functionality.\nImplemented a retrieval-augmented generation system in **FastAPI** using TF-IDF vectorization to pull relevant HR guidelines before generating content.\nReduced generation time from **75s to under 30s** by parallelizing independent tasks with Python thread pools; integrated **JWT** auth and SQLAlchemy for user persistence.\nDeployed frontend to Vercel and backend to **AWS EC2** inside **Docker** with configured volumes, environment secrets, and CORS headers.",
+      "tech_stack": [
+        "React",
+        "Vite",
+        "TypeScript",
+        "FastAPI",
+        "SQLAlchemy",
+        "SQLite",
+        "JWT",
+        "Docker"
+      ],
+      "link": "https://github.com/Ayushburde06/ResumeAI",
+      "live_link": "https://resume-ai-sigma-pied.vercel.app/"
+    },
+    {
+      "name": "Notes App",
+      "bullets": [
+        "Built a full-stack note-taking application from scratch to understand the complete request lifecycle without starter templates.",
+        "Implemented **JWT** authentication on **Express.js**, **MongoDB** storage, and **React JS**/**Redux** state management on the frontend.",
+        "Designed server-side search with chained Mongoose filters and optimized sort order for note pinning across both backend queries and Redux state."
+      ],
+      "description": "Built a full-stack note-taking application from scratch to understand the complete request lifecycle without starter templates.\nImplemented **JWT** authentication on **Express.js**, **MongoDB** storage, and **React JS**/**Redux** state management on the frontend.\nDesigned server-side search with chained Mongoose filters and optimized sort order for note pinning across both backend queries and Redux state.",
+      "tech_stack": [
+        "React",
+        "Redux",
+        "Tailwind CSS",
+        "Node.js",
+        "Express.js",
+        "MongoDB",
+        "JWT"
+      ],
+      "link": "https://github.com/Ayushburde06/Notes-App-main",
+      "live_link": "https://notes-app-main-aqv5.onrender.com/"
+    }
+  ]
+}

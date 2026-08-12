@@ -3,7 +3,7 @@ layout_engine.py — Renderer-Agnostic Adaptive Layout Optimization
 
 This module measures the resume payload and calculates the target
 typography, density, and whitespace budgets before handing off
-to the specific rendering engine (HTML/Playwright or LaTeX).
+to the specific rendering engine (HTML/WeasyPrint or LaTeX).
 """
 
 def count_resume_words(resume: dict) -> int:

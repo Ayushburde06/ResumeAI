@@ -1,0 +1,159 @@
+{
+  "personal_info": {
+    "name": "Ayushkumar Burde",
+    "email": "ayushburde156@gmail.com",
+    "phone": "+91-8600820291",
+    "location": "Nagpur, India",
+    "linkedin": "https://linkedin.com/in/ayushkumar6",
+    "github": "https://github.com/Ayushburde06",
+    "website": "https://ayushkumar-portfolio-site.vercel.app/"
+  },
+  "summary": "MERN Stack Developer with hands-on experience building responsive web interfaces and RESTful APIs using **React.js**, **Node.js**, **Express.js**, and **MongoDB**. built production applications with JWT authentication, database schema design, and asynchronous request handling. Delivered client-facing inventory systems and AI-powered tools with clean, scalable code.",
+  "experience": [
+    {
+      "title": "Full Stack Developer",
+      "company": "Freelance",
+      "location": "Remote",
+      "start_date": "Sep 2024",
+      "end_date": "Present",
+      "bullets": [
+        "Built a client inventory management system using **React.js**, **Node.js**, and **PostgreSQL**, handling authentication, **RESTful APIs**, and database schema design.",
+        "Implemented Prisma ORM for type-safe database migrations, catching schema errors at compile time during rapid iteration cycles.",
+        "Migrated a client application from traditional server hosting to Cloudflare Workers, reducing cold-start latency from **2+ seconds to under 100ms**."
+      ]
+    },
+    {
+      "title": "Software Engineer Intern",
+      "company": "CrystalTech Services Pvt. Ltd.",
+      "location": "Nagpur, India",
+      "start_date": "Jul 2023",
+      "end_date": "Dec 2023",
+      "bullets": [
+        "Developed **RESTful APIs** endpoints using **Node.js** and **Express.js**, delivering three backend service modules within the first week.",
+        "Diagnosed and resolved a frontend performance issue by fixing missing Redux selectors, eliminating redundant network calls on route changes.",
+        "Optimized SQL Server queries by implementing proper indexing, reducing average response time by **60%**.",
+        "Contributed to code quality through small, reviewable pull requests and participated in Agile sprint retrospectives using **Git** and Jira for task tracking."
+      ]
+    }
+  ],
+  "education": [
+    {
+      "degree": "Master of Computer Applications (MCA)",
+      "institution": "Tulsiramji Gaikwad Patil College of Engineering & Technology",
+      "location": "Nagpur, India",
+      "graduation_year": "2025",
+      "gpa": "CGPA: 6.76/10",
+      "honors": "Co-authored and published a research paper; Participated in UI/UX design competitions"
+    },
+    {
+      "degree": "Bachelor of Computer Applications (BCA)",
+      "institution": "City Premier College, RTM Nagpur University",
+      "location": "Nagpur, India",
+      "graduation_year": "2022",
+      "gpa": "CGPA: 8.45/10",
+      "honors": "Placement Cell Coordinator; Student Body Treasurer; Active in programming competitions"
+    }
+  ],
+  "skills": {
+    "languages": [
+      "JavaScript",
+      "TypeScript",
+      "Python",
+      "Java",
+      "SQL"
+    ],
+    "frontend": [
+      "React.js",
+      "Redux",
+      "HTML",
+      "CSS",
+      "Tailwind CSS"
+    ],
+    "backend": [
+      "Node.js",
+      "Express.js",
+      "FastAPI"
+    ],
+    "databases": [
+      "MongoDB",
+      "PostgreSQL",
+      "MySQL",
+      "SQLite",
+      "SQL Server"
+    ],
+    "cloud": [
+      "AWS EC2",
+      "Vercel",
+      "Cloudflare Workers"
+    ],
+    "devops": [
+      "Docker",
+      "Git",
+      "CI/CD"
+    ],
+    "tools": [
+      "Jira",
+      "JWT",
+      "Prisma ORM"
+    ],
+    "concepts": [
+      "RESTful APIs",
+      "Asynchronous Request Handling",
+      "Code Reviews"
+    ]
+  },
+  "certifications": [
+    {
+      "name": "Complete Python Bootcamp from Zero to Hero",
+      "issuer": "Udemy",
+      "year": ""
+    },
+    {
+      "name": "Django Masterclass",
+      "issuer": "Udemy",
+      "year": ""
+    }
+  ],
+  "projects": [
+    {
+      "name": "Notes App",
+      "bullets": [
+        "Built a full-stack note-taking application to understand the complete product development lifecycle, from UI to database.",
+        "Implemented **JWT** authentication on **Express.js**, **MongoDB** storage, and **React.js**/**Redux** state management for the frontend.",
+        "Designed server-side search with chained Mongoose filters and optimized sort order for note pinning across backend queries and Redux state.",
+        "Built responsive web interfaces handling asynchronous request handling for CRUD operations with proper error states."
+      ],
+      "description": "Built a full-stack note-taking application to understand the complete product development lifecycle, from UI to database.\nImplemented **JWT** authentication on **Express.js**, **MongoDB** storage, and **React.js**/**Redux** state management for the frontend.\nDesigned server-side search with chained Mongoose filters and optimized sort order for note pinning across backend queries and Redux state.\nBuilt responsive web interfaces handling asynchronous request handling for CRUD operations with proper error states.",
+      "tech_stack": [
+        "React.js",
+        "Redux",
+        "Node.js",
+        "Express.js",
+        "MongoDB",
+        "JWT"
+      ],
+      "link": "https://github.com/Ayushburde06/Notes-App-main",
+      "live_link": "https://notes-app-main-aqv5.onrender.com/"
+    },
+    {
+      "name": "Resume AI",
+      "bullets": [
+        "Built an AI-powered resume builder that generates tailored resumes and calculates an ATS keyword-matching score with auto-rewrite functionality.",
+        "Implemented a retrieval-augmented generation system in FastAPI using TF-IDF vectorization to pull relevant HR guidelines before generating content.",
+        "Reduced generation time from **75s to under 30s** by parallelizing independent tasks with Python thread pools; integrated JWT auth and SQLAlchemy for user persistence.",
+        "Deployed frontend to Vercel and backend to **AWS EC2** inside **Docker** with configured volumes, environment secrets, and CORS headers."
+      ],
+      "description": "Built an AI-powered resume builder that generates tailored resumes and calculates an ATS keyword-matching score with auto-rewrite functionality.\nImplemented a retrieval-augmented generation system in FastAPI using TF-IDF vectorization to pull relevant HR guidelines before generating content.\nReduced generation time from **75s to under 30s** by parallelizing independent tasks with Python thread pools; integrated JWT auth and SQLAlchemy for user persistence.\nDeployed frontend to Vercel and backend to **AWS EC2** inside **Docker** with configured volumes, environment secrets, and CORS headers.",
+      "tech_stack": [
+        "React",
+        "Vite",
+        "TypeScript",
+        "FastAPI",
+        "SQLite",
+        "Docker"
+      ],
+      "link": "https://github.com/Ayushburde06/ResumeAI",
+      "live_link": "https://resume-ai-sigma-pied.vercel.app/"
+    }
+  ]
+}

@@ -45,18 +45,18 @@ TEMPLATE_REGISTRY = {
         "supports_preview": False,
     },
     "modern": {
-        "engine": "playwright",
+        "engine": "weasyprint",
         "template": "modern.html",
         "default": True,
         "supports_preview": True,
     },
     "classic": {
-        "engine": "playwright",
+        "engine": "weasyprint",
         "template": "classic.html",
         "supports_preview": True,
     },
     "minimal": {
-        "engine": "playwright",
+        "engine": "weasyprint",
         "template": "minimalist.html",
         "supports_preview": True,
     },
@@ -427,7 +427,7 @@ async def export_pdf(
     engine = TEMPLATE_REGISTRY[template]["engine"]
 
     try:
-        if engine == "playwright":
+        if engine == "weasyprint":
             from concurrency import pdf_semaphore
             async with pdf_semaphore:
                 pdf_bytes = await generate_pdf(

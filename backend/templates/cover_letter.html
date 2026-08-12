@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cover Letter — {{ candidate_name }}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  @page {
+    size: A4;
+    margin: 20mm 22mm 18mm 22mm;
+  }
+
+  body {
+    font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.55;
+    color: #1a1a1a;
+    background: #fff;
+  }
+
+  /* ── Top header bar ────────────────────────────────────────── */
+  .header {
+    border-bottom: 2px solid #1a1a2e;
+    padding-bottom: 10px;
+    margin-bottom: 22px;
+  }
+  .header-name {
+    font-size: 18pt;
+    font-weight: 600;
+    color: #1a1a2e;
+    letter-spacing: -0.3px;
+  }
+  .header-contact {
+    font-size: 8.5pt;
+    color: #555;
+    margin-top: 4px;
+  }
+  .header-contact span { margin-right: 14px; }
+  .header-contact a { color: #2563eb; text-decoration: none; }
+
+  /* ── Date & salutation ─────────────────────────────────────── */
+  .letter-date {
+    font-size: 9.5pt;
+    color: #666;
+    margin-bottom: 18px;
+  }
+
+  .salutation {
+    font-size: 10.5pt;
+    margin-bottom: 14px;
+  }
+
+  /* ── Body paragraphs ───────────────────────────────────────── */
+  .letter-body p {
+    margin-bottom: 13px;
+    text-align: left;
+  }
+
+  /* ── Sign-off ──────────────────────────────────────────────── */
+  .signoff {
+    margin-top: 22px;
+    font-size: 10.5pt;
+  }
+  .signoff-name {
+    font-weight: 600;
+    color: #1a1a2e;
+    margin-top: 4px;
+  }
+  .signoff-links {
+    font-size: 8.5pt;
+    color: #555;
+    margin-top: 5px;
+  }
+  .signoff-links a { color: #2563eb; text-decoration: none; }
+
+  /* ── Subject line chip ─────────────────────────────────────── */
+  .subject-chip {
+    display: inline-block;
+    background: #f0f4ff;
+    color: #2563eb;
+    font-size: 8.5pt;
+    font-weight: 500;
+    border-radius: 4px;
+    padding: 3px 9px;
+    margin-bottom: 20px;
+    border: 1px solid #c7d7ff;
+  }
+</style>
+</head>
+<body>
+
+  <!-- Candidate header -->
+  <div class="header">
+    <div class="header-name">{{ candidate_name }}</div>
+    <div class="header-contact">
+      {% if email %}<span>{{ email }}</span>{% endif %}
+      {% if phone %}<span>{{ phone }}</span>{% endif %}
+      {% if location %}<span>{{ location }}</span>{% endif %}
+      {% if portfolio %}<span><a href="{{ portfolio }}">Portfolio</a></span>{% endif %}
+      {% if github %}<span><a href="{{ github }}">GitHub</a></span>{% endif %}
+      {% if linkedin_url %}<span><a href="{{ linkedin_url }}">LinkedIn</a></span>{% endif %}
+    </div>
+  </div>
+
+  <!-- Subject line -->
+  {% if subject_line %}
+  <div class="subject-chip">Re: {{ subject_line }}</div>
+  {% endif %}
+
+  <!-- Date -->
+  <div class="letter-date">{{ letter_date }}</div>
+
+  <!-- Salutation -->
+  <div class="salutation">Dear Hiring Manager,</div>
+
+  <!-- Body -->
+  <div class="letter-body">
+    {% for paragraph in paragraphs %}
+    <p>{{ paragraph }}</p>
+    {% endfor %}
+  </div>
+
+  <!-- Sign-off -->
+  <div class="signoff">
+    Regards,
+    <div class="signoff-name">{{ candidate_name }}</div>
+    <div class="signoff-links">
+      {% if portfolio %}<div><a href="{{ portfolio }}">{{ portfolio }}</a></div>{% endif %}
+      {% if github %}<div><a href="{{ github }}">{{ github }}</a></div>{% endif %}
+    </div>
+  </div>
+
+</body>
+</html>

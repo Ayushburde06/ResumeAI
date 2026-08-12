@@ -10,7 +10,7 @@ Environment variables (all optional):
     LIMIT_CONCURRENCY=10               # max in-flight connections
     LIMIT_MAX_REQUESTS=200             # recycle worker after N requests
     MAX_CONCURRENT_AI=2                # max simultaneous AI calls
-    MAX_CONCURRENT_PDF=0               # 0 = Playwright disabled (use LaTeX)
+    MAX_CONCURRENT_PDF=3               # WeasyPrint max concurrent exports
     MAX_CONCURRENT_LATEX=1             # max simultaneous LaTeX exports
 
 Why 1 worker on Free Tier:
@@ -22,7 +22,7 @@ Memory budget (t2.micro, 1 GB):
     - Python + uvicorn:            ~120 MB
     - SQLite WAL + connections:     ~50 MB
     - LaTeX (pdflatex):            ~100 MB per compile
-    - Playwright Chromium:         ~400 MB (DISABLED on Free Tier)
+    - WeasyPrint:                  ~50 MB per export
     - Remaining for OS:            ~330 MB
 """
 import os
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     print(f"  Max concurrent LaTeX:{os.environ.get('MAX_CONCURRENT_LATEX')}")
     print(f"  Max total requests:  {os.environ.get('MAX_CONCURRENT_REQUESTS')}")
     if IS_FREE_TIER:
-        print(f"  [Free Tier] Playwright PDF disabled, LaTeX only")
+        print(f"  [Free Tier] Running WeasyPrint (low memory mode)")
     print("=" * 60)
 
     uvicorn.run(

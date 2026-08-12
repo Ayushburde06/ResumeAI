@@ -670,7 +670,7 @@ def run_agent(
     with ThreadPoolExecutor(max_workers=3) as pool:
         cl_future = pool.submit(generate_cover_letter, final_resume, job_analysis, jd_text, model_id, cl_rag)
         em_future = pool.submit(generate_application_email, final_resume, job_analysis, jd_text, model_id, em_rag)
-        li_future = pool.submit(generate_linkedin_message, final_resume, job_analysis, model_id)
+        li_future = pool.submit(generate_linkedin_message, final_resume, job_analysis, model_id, jd_text)
 
         try:
             cover_letter = cl_future.result(timeout=45)

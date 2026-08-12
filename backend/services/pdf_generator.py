@@ -321,3 +321,81 @@ class BrowserManager:
     @classmethod
     async def close_all(cls):
         pass
+
+
+# ── Synchronous wrapper (for batch_process.py and CLI scripts) ────────────────
+
+def generate_pdf_sync(resume_data: dict, template: str = "modern") -> bytes:
+    """Synchronous wrapper around async generate_pdf(). Safe to call from
+    non-async contexts such as batch_process.py."""
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+        # Already inside an event loop — run in a thread
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            future = pool.submit(asyncio.run, generate_pdf(resume_data, template_name=template))
+            return future.result(timeout=120)
+    except RuntimeError:
+        # No running loop — safe to use asyncio.run()
+        return asyncio.run(generate_pdf(resume_data, template_name=template))
+
+
+# ── Cover letter PDF ──────────────────────────────────────────────────────────
+
+def generate_cover_letter_pdf(cover_letter: dict, resume_data: dict) -> bytes:
+    """Render a cover letter dict to PDF using the cover_letter.html template.
+    Issue 7: dedicated cover letter rendering template.
+
+    cover_letter: {"subject_line": "...", "body": "date\\n\\nDear...\\n\\nP1\\n\\nP2..."}
+    resume_data:  the tailored resume dict (for candidate contact info in the header).
+    """
+    import re
+    import datetime
+
+    personal = resume_data.get("personal_info", {})
+    body     = cover_letter.get("body", "")
+
+    # Split the body into paragraphs (separated by double newlines)
+    # Filter out the date line and the Dear line — those are in the template
+    paragraphs = []
+    for chunk in re.split(r"\n{2,}", body.strip()):
+        stripped = chunk.strip()
+        if not stripped:
+            continue
+        # Skip the date line and the "Dear Hiring Manager," line — template handles them
+        if re.match(r'^(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d', stripped):
+            continue
+        if stripped.lower().startswith("dear "):
+            continue
+        # Skip the sign-off block (starts with Regards or Best)
+        if stripped.lower().startswith(("regards", "best,", "sincerely")):
+            continue
+        paragraphs.append(stripped)
+
+    # Extract today's date from the body if present, otherwise generate it
+    date_match = re.search(
+        r'(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}',
+        body
+    )
+    letter_date = date_match.group(0) if date_match else datetime.date.today().strftime("%B %d, %Y")
+
+    template = _jinja_env.get_template("cover_letter.html")
+    html = template.render(
+        candidate_name = personal.get("name", ""),
+        email          = personal.get("email", ""),
+        phone          = personal.get("phone", ""),
+        location       = personal.get("location", ""),
+        portfolio      = personal.get("website", "") or personal.get("portfolio", ""),
+        github         = personal.get("github", ""),
+        linkedin_url   = personal.get("linkedin", ""),
+        subject_line   = cover_letter.get("subject_line", ""),
+        letter_date    = letter_date,
+        paragraphs     = paragraphs,
+    )
+
+    doc = HTML(string=html, url_fetcher=_url_fetcher)
+    return doc.write_pdf(
+        stylesheets=[CSS(string=_BASE_CSS, url_fetcher=_url_fetcher)],
+        presentational_hints=True,
+    )

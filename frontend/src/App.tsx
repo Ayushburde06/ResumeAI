@@ -11,6 +11,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'))
 const HistoryResults = lazy(() => import('./pages/HistoryResults'))
 const NotFound = lazy(() => import('./pages/NotFound'))
 const Profile = lazy(() => import('./pages/Profile'))
+const Terms = lazy(() => import('./pages/Terms'))
 
 function RouteFallback() {
   return (
@@ -34,6 +35,7 @@ export default function App() {
             <Route path="/results/:id" element={<HistoryResults />} />
             <Route path="/agent" element={<Navigate to="/" replace />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/terms" element={<Terms />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
