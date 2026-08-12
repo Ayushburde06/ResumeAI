@@ -5,10 +5,11 @@ No heavy dependencies: no ChromaDB, no sentence-transformers.
 All LLM calls route through existing GLM/Qwen via ai_service._get_client().
 """
 import json
-import re
 from pathlib import Path
 from typing import NamedTuple
+
 import numpy as np
+
 from services.ai_service import get_embedding
 
 # ── Knowledge base path ──────────────────────────────────────────────────────

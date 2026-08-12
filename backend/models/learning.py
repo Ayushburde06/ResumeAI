@@ -9,9 +9,9 @@ prompts — creating a compounding improvement loop.
 DeltaPattern — stores what changed between iterations when ATS improved significantly.
 Used to understand WHICH edits reliably improve ATS score.
 """
-from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime
-from sqlalchemy.sql import func
 from database import Base
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
+from sqlalchemy.sql import func
 
 
 class LearningExample(Base):

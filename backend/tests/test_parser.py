@@ -1,7 +1,7 @@
 import pytest
 from services.parser import (
-    _check_mime,
     _append_links,
+    _check_mime,
     parse_resume,
 )
 

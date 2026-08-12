@@ -5,7 +5,7 @@ def to_href(raw: str) -> str:
     value = (raw or "").strip()
     if not value:
         return ""
-    if re.match(r"^(mailto:|tel:|https?://)", value, re.I):
+    if re.match(r"^(mailto:|tel:|https?://)", value, re.IGNORECASE):
         return value
     return f"https://{value.lstrip('/')}"
 

@@ -1,5 +1,6 @@
 import { CheckCircle2, Loader2, Sparkles, XCircle, TrendingUp, Zap } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { AnimatedScore } from './AnimatedScore'
 
 interface Props {
   score: number
@@ -54,7 +55,11 @@ function ScoreRing({ score, title = "ATS Match" }: { score: number, title?: stri
           transform="rotate(-90 50 50)"
           style={{ transition: 'stroke-dashoffset 1.2s ease' }}
         />
-        <text x="50" y="46" textAnchor="middle" fontSize="18" fontWeight="700" fill={color}>{score}</text>
+        <foreignObject x="20" y="25" width="60" height="30">
+          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: color, fontSize: '18px', fontWeight: '700', fontFamily: 'sans-serif' }}>
+            <AnimatedScore score={score} />
+          </div>
+        </foreignObject>
         <text x="50" y="60" textAnchor="middle" fontSize="9" fill="#6b7280">/ 100</text>
       </svg>
       <div className="flex flex-col items-center mt-1">

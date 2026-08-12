@@ -121,11 +121,11 @@ def create_resume():
     
     # Project 1
     p_p1 = doc.add_paragraph()
-    r_p1 = p_p1.add_run("ResumeAI — React, FastAPI, Python, WeasyPrint, AI")
+    r_p1 = p_p1.add_run("ResumeAI — React, FastAPI, Python, Playwright, AI")
     r_p1.font.bold = True
     r_p1.font.size = Pt(11)
     doc.add_paragraph("Built an AI-powered ATS Resume Builder with LaTeX-based PDF generation, dynamic template rendering, and job description keyword optimization.", style='List Bullet')
-    doc.add_paragraph("Engineered a robust PDF export engine using WeasyPrint and Jinja2, ensuring pixel-perfect layout preservation.", style='List Bullet')
+    doc.add_paragraph("Engineered a robust PDF export engine using Playwright and Jinja2, ensuring pixel-perfect layout preservation.", style='List Bullet')
 
     # Project 2
     p_p2 = doc.add_paragraph()

@@ -1,13 +1,16 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom'
+import { motion, useReducedMotion } from 'framer-motion'
 import { Sparkles, LayoutDashboard, LogOut, Zap, Menu, ArrowRight } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
+import { transitionFast } from '@/lib/motion'
 
 export default function Navbar() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const reduceMotion = useReducedMotion()
 
   if (location.pathname === '/' && !user) {
     return null
@@ -19,18 +22,26 @@ export default function Navbar() {
   }
 
   const isDashboardActive = location.pathname === '/dashboard'
-  const isAgentActive = location.pathname === '/agent'
 
   return (
-    <nav className="sticky top-0 left-0 right-0 z-50 border-b border-white/70 bg-white/85 backdrop-blur-xl">
+    <motion.nav
+      className="sticky top-0 left-0 right-0 z-50 border-b border-white/70 bg-white/85 backdrop-blur-xl"
+      initial={reduceMotion ? false : { y: -12, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      transition={transitionFast}
+    >
       <div className="page-shell h-16 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
-          <div className="w-9 h-9 shrink-0 rounded-2xl bg-brand flex items-center justify-center shadow-[0_12px_24px_rgba(26,31,46,0.16)]">
+          <motion.div
+            className="w-9 h-9 shrink-0 rounded-2xl bg-brand flex items-center justify-center shadow-[0_12px_24px_rgba(26,31,46,0.16)]"
+            whileHover={reduceMotion ? undefined : { scale: 1.06, rotate: -6 }}
+            transition={{ type: 'spring', stiffness: 360, damping: 18 }}
+          >
             <Sparkles className="w-4 h-4 text-white" />
-          </div>
+          </motion.div>
           <div className="leading-tight">
-            <span className="block text-slate-ink text-lg tracking-tight font-semibold">ResumeAI</span>
-            <span className="hidden sm:block text-[11px] uppercase tracking-[0.22em] text-zinc-500">Tailoring workspace</span>
+            <span className="block text-slate-ink text-[15px] tracking-tight font-semibold">ResumeAI</span>
+            <span className="hidden sm:block text-[11px] uppercase tracking-[0.14em] text-zinc-500">Tailoring workspace</span>
           </div>
         </Link>
 
@@ -49,18 +60,6 @@ export default function Navbar() {
                   Dashboard
                 </Button>
               </Link>
-              <Link to="/agent">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={`gap-2 rounded-2xl px-4 ${
-                    isAgentActive ? 'text-zinc-950 bg-zinc-50 font-semibold' : 'text-zinc-600 hover:text-zinc-950'
-                  }`}
-                >
-                  <Sparkles className={`w-4 h-4 ${isAgentActive ? 'text-zinc-950' : 'text-zinc-400'}`} />
-                  Agent Mode
-                </Button>
-              </Link>
               <div className="flex items-center gap-3 pl-3 border-l border-zinc-200">
                 {!user.is_premium && (
                   <div className="flex items-center gap-1.5 text-xs text-zinc-600 font-medium bg-zinc-50 px-3 py-1.5 rounded-full border border-zinc-200">
@@ -76,6 +75,7 @@ export default function Navbar() {
                   size="icon"
                   className="h-9 w-9 rounded-2xl text-zinc-400 hover:text-red-600 hover:bg-red-50"
                   onClick={handleLogout}
+                  aria-label="Sign out"
                 >
                   <LogOut className="w-4 h-4" />
                 </Button>
@@ -105,7 +105,10 @@ export default function Navbar() {
             </div>
           )}
           <Sheet>
-            <SheetTrigger className="inline-flex items-center justify-center p-2 rounded-xl text-zinc-700 hover:bg-white/80 border border-zinc-200/70 transition-colors">
+            <SheetTrigger
+              aria-label="Open menu"
+              className="inline-flex items-center justify-center p-2 rounded-xl text-zinc-700 hover:bg-white/80 border border-zinc-200/70 transition-colors"
+            >
               <Menu className="w-4.5 h-4.5" />
             </SheetTrigger>
             <SheetContent side="right" className="w-[280px] sm:w-[320px] bg-white p-6">
@@ -121,12 +124,6 @@ export default function Navbar() {
                       <Button variant="ghost" className="w-full justify-start gap-2.5 text-zinc-700 rounded-2xl">
                         <LayoutDashboard className="w-4.5 h-4.5 text-zinc-500" />
                         Dashboard
-                      </Button>
-                    </Link>
-                    <Link to="/agent">
-                      <Button variant="ghost" className="w-full justify-start gap-2.5 text-zinc-700 rounded-2xl">
-                        <Sparkles className="w-4.5 h-4.5 text-zinc-500" />
-                        Agent Mode
                       </Button>
                     </Link>
                     <div className="h-px bg-zinc-100 my-1" />
@@ -167,6 +164,6 @@ export default function Navbar() {
           </Sheet>
         </div>
       </div>
-    </nav>
+    </motion.nav>
   )
 }

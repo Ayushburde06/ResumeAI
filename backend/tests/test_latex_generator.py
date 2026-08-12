@@ -1,16 +1,15 @@
-import pytest
 from services.latex_generator import (
-    _e,
     _e_url,
-    _bold,
-    _shorten,
     generate_latex,
+    tex_bold,
+    tex_escape,
+    tex_shorten,
 )
 
 
 def test_latex_escaping_special_chars():
     raw_text = "50% increase in revenue & sales #1 for $100k project {test_var}"
-    escaped = _e(raw_text)
+    escaped = tex_escape(raw_text)
 
     assert r"\%" in escaped
     assert r"\&" in escaped
@@ -30,7 +29,7 @@ def test_latex_url_escaping():
 
 def test_latex_bold_conversion():
     text_with_bold = "Lead developer on **FastAPI Microservice** with 99.9% uptime."
-    rendered = _bold(text_with_bold)
+    rendered = tex_bold(text_with_bold)
 
     assert r"\textbf{FastAPI Microservice}" in rendered
     assert r"99.9\%" in rendered
@@ -38,7 +37,7 @@ def test_latex_bold_conversion():
 
 def test_shorten_url():
     long_url = "https://www.linkedin.com/in/ayush-burde-super-long-profile-name"
-    shortened = _shorten(long_url, maxlen=25)
+    shortened = tex_shorten(long_url, maxlen=25)
     assert shortened.startswith("linkedin.com/in/ayush-")
     assert "https://" not in shortened
 

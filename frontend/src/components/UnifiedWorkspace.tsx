@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { Upload, FileText, X, Loader2, Mail, ChevronDown, ChevronUp, Mic, MessageSquare, Link as LinkIcon, Lightbulb, Target, ThumbsUp, ThumbsDown } from 'lucide-react'
 import { useDropzone } from 'react-dropzone'
@@ -10,19 +11,22 @@ import type { AgentAnalyzeResult, ModelInfo, InterviewPrep } from '../types'
 import ResumePreview from './ResumePreview'
 import ATSScore from './ATSScore'
 import ModelSelector from './ModelSelector'
+import { ErrorBoundary } from './ErrorBoundary'
 import JobSearch from './JobSearch'
-import { fetchModels, improveAtsScore, submitFeedback } from '../lib/api'
+import { agentAnalyze, fetchModels, submitFeedback } from '../lib/api'
+import { AgentState, transitionState } from '../lib/state-machine'
 import { useAuth } from '../context/AuthContext'
 
 const MAX_FILE_SIZE_MB = 10
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+const transitionBase = { duration: 0.3, ease: 'easeInOut' as any }
+const reduceMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
 interface UnifiedWorkspaceProps {
   initialFile?: File | null
   initialJd?: string
   initialResult?: AgentAnalyzeResult | null
   initialInterviewPrep?: InterviewPrep | null
-  onAnalyze: (file: File, jd: string, modelId?: string) => Promise<AgentAnalyzeResult>
 }
 
 export default function UnifiedWorkspace({
@@ -30,7 +34,6 @@ export default function UnifiedWorkspace({
   initialJd = '',
   initialResult = null,
   initialInterviewPrep = null,
-  onAnalyze,
 }: UnifiedWorkspaceProps) {
   const navigate = useNavigate()
   const { refreshUser } = useAuth()
@@ -38,13 +41,14 @@ export default function UnifiedWorkspace({
   const [jd, setJd] = useState(initialJd)
   const [jdMode, setJdMode] = useState<'paste' | 'search'>('paste')
   const [result, setResult] = useState<AgentAnalyzeResult | null>(initialResult)
-  const [loading, setLoading] = useState(false)
-  const [optimizingAts, setOptimizingAts] = useState(false)
+  const [agentState, setAgentState] = useState<AgentState>('idle')
   const [models, setModels] = useState<ModelInfo[]>([])
   const [selectedModel, setSelectedModel] = useState('')
   const [openPanel, setOpenPanel] = useState<string | null>(null)
   const [feedbackRating, setFeedbackRating] = useState<'up' | 'down' | null>(null)
   const [feedbackSaving, setFeedbackSaving] = useState(false)
+  const isProcessing = agentState !== 'idle' && agentState !== 'done' && agentState !== 'error'
+  
   const interviewPrep = initialInterviewPrep
   const qualityReport = result?.quality_report
   const hasQualityScores = !!qualityReport && (
@@ -110,54 +114,61 @@ export default function UnifiedWorkspace({
 
   const handleTailor = async () => {
     if (!file || jd.trim().length < 50) return
-    // Client-side file size guard before hitting the server
     if (file.size > MAX_FILE_SIZE_BYTES) {
       toast.error(`File is too large. Maximum size is ${MAX_FILE_SIZE_MB} MB.`)
       return
     }
-    setLoading(true)
-    try {
-      const res = await onAnalyze(file, jd, selectedModel || undefined)
-      setResult(res)
-      toast.success('Resume tailored successfully!')
-      // Refresh quota badge immediately so counter stays accurate
-      await refreshUser()
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to tailor resume')
-    } finally {
-      setLoading(false)
-    }
+    setAgentState(prev => transitionState(prev, 'uploading'))
+    
+    agentAnalyze(
+      file,
+      jd,
+      selectedModel || undefined,
+      (step) => {
+        
+        setAgentState(prev => {
+          if (step.step === 'domain_classify' || step.step === 'capability_graph' || step.step === 'adaptive_gap' || step.step === 'job_analysis') {
+            return transitionState(prev, 'analyzing')
+          }
+          if (step.step === 'blueprint') return transitionState(prev, 'planning')
+          if (step.step === 'rewrite_resume' || step.step === 'humanize' || step.step === 'cover_letter' || step.step === 'interview_prep') return transitionState(prev, 'writing')
+          if (step.step === 'quality_check' || step.step === 'ats_score') return transitionState(prev, 'scoring')
+          return prev
+        })
+      },
+      async (res) => {
+        setResult(res)
+        setAgentState(prev => transitionState(prev, 'done'))
+        toast.success('Resume tailored successfully!')
+        await refreshUser()
+      },
+      (err) => {
+        toast.error(err)
+        setAgentState(prev => transitionState(prev, 'error'))
+      }
+    )
   }
 
   const handleImproveAts = async () => {
-    if (!result || !result.missing_keywords.length || !result.job_analysis) return
-    setOptimizingAts(true)
-    try {
-      const boosted = await improveAtsScore({
-        tailoredResume: result.tailored_resume,
-        jobDescription: jd,
-        jobAnalysis: result.job_analysis,
-        missingKeywords: result.missing_keywords,
-        modelId: selectedModel || undefined,
-      })
-
-      setResult((prev) => prev ? ({
-        ...prev,
-        tailored_resume: boosted.tailored_resume,
-        ats_score: boosted.ats_score,
-        matched_keywords: boosted.matched_keywords,
-        missing_keywords: boosted.missing_keywords,
-        total_keywords: boosted.total_keywords,
-        auto_improved: true,
-      }) : prev)
-      toast.success(`ATS optimized to ${boosted.ats_score}%`)
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to optimize ATS score')
-    } finally {
-      setOptimizingAts(false)
-    }
+    if (!result || !file || !result.missing_keywords.length || !result.job_analysis) return
+    setAgentState(prev => transitionState(prev, 'analyzing'))
+    
+    agentAnalyze(
+      file,
+      jd,
+      selectedModel || undefined,
+      () => {},
+      (res) => {
+        setResult(res)
+        setAgentState(prev => transitionState(prev, 'done'))
+        toast.success(`Agent re-run completed at ${res.ats_score}% ATS`)
+      },
+      (err) => {
+        toast.error(err)
+        setAgentState(prev => transitionState(prev, 'error'))
+      }
+    )
   }
-
 
   return (
     <div className="flex-1 min-h-0 flex flex-col w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 lg:py-6">
@@ -258,90 +269,102 @@ export default function UnifiedWorkspace({
             )}
           </div>
 
-          {models.length > 0 && (
-            <div className="panel p-6">
-              <div className="mb-4">
-                <p className="section-title mb-1">Step 3</p>
-                <h3 className="text-base font-semibold text-zinc-950">AI Model</h3>
-              </div>
-              <ModelSelector
-                models={models}
-                selectedModel={selectedModel}
-                onChange={setSelectedModel}
-              />
-            </div>
-          )}
+
           
           <div className="flex flex-col gap-2">
             <Button 
               size="lg" 
               className="w-full bg-brand hover:bg-brand-hover text-white h-12 shrink-0 rounded-2xl shadow-[0_18px_40px_rgba(26,31,46,0.18)]"
               onClick={handleTailor}
-              disabled={!file || jd.length < 50 || loading}
+              disabled={!file || jd.length < 50 || isProcessing}
             >
-              {loading ? (
+              {isProcessing ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Optimizing Resume
+                  {agentState === 'uploading' && 'Uploading...'}
+                  {agentState === 'analyzing' && 'Analyzing Role...'}
+                  {agentState === 'planning' && 'Planning Structure...'}
+                  {agentState === 'writing' && 'Writing Resume...'}
+                  {agentState === 'scoring' && 'Scoring ATS...'}
                 </>
               ) : (
                 'Optimize Resume'
               )}
             </Button>
-
-            <Tooltip>
-              <TooltipTrigger 
-                render={
-                  <Button
-                    variant="outline"
-                    size="lg"
-                    className="w-full h-11 rounded-2xl border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
-                    onClick={() => navigate('/agent')}
-                  >
-                    Optimize with AI Agent
-                  </Button>
-                }
-              />
-              <TooltipContent>
-                Uses multi-agent reasoning and knowledge retrieval for deeper optimization.
-              </TooltipContent>
-            </Tooltip>
           </div>
         </div>
 
         {/* RIGHT PANEL */}
         <div className="flex flex-col lg:overflow-y-auto lg:h-full pl-0 lg:pl-1 pb-4">
-          {loading && (
-            <div className="panel p-5 mb-4 border-brand-100 bg-brand-50/40">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white border border-brand-100 shadow-sm">
-                  <Loader2 className="w-5 h-5 text-brand animate-spin" />
+          <AnimatePresence mode="wait">
+            {isProcessing && result && (
+              <motion.div className="panel p-5 mb-4 border-brand-100 bg-brand-50/40" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white border border-brand-100 shadow-sm">
+                    <Loader2 className="w-5 h-5 text-brand animate-spin" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-zinc-900">Optimizing resume</p>
+                    <p className="text-xs text-zinc-500">Comparing keywords, rewriting sections, and checking ATS fit.</p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-brand animate-pulse" />
+                    <span className="h-2 w-2 rounded-full bg-brand/70 animate-pulse [animation-delay:150ms]" />
+                    <span className="h-2 w-2 rounded-full bg-brand/40 animate-pulse [animation-delay:300ms]" />
+                  </div>
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-zinc-900">Optimizing resume</p>
-                  <p className="text-xs text-zinc-500">Comparing keywords, rewriting sections, and checking ATS fit.</p>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-brand animate-pulse" />
-                  <span className="h-2 w-2 rounded-full bg-brand/70 animate-pulse [animation-delay:150ms]" />
-                  <span className="h-2 w-2 rounded-full bg-brand/40 animate-pulse [animation-delay:300ms]" />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {isProcessing && !result ? (
+            <motion.div 
+              className="panel flex-1 flex flex-col items-center justify-center text-center p-8 min-h-[400px]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <div className="relative mb-6">
+                <div className="absolute inset-0 bg-brand/20 blur-xl rounded-full" />
+                <div className="relative bg-white border border-brand-100 p-4 rounded-2xl shadow-sm">
+                  <Loader2 className="w-8 h-8 text-brand animate-spin" />
                 </div>
               </div>
-            </div>
-          )}
-
-          {result ? (
-            <div className="space-y-4">
-              <ATSScore
-                score={result.ats_score}
-                matchedKeywords={result.matched_keywords}
-                missingKeywords={result.missing_keywords}
-                totalKeywords={result.total_keywords}
-                onImproveAts={handleImproveAts}
-                improving={optimizingAts}
-                autoImproved={result.auto_improved}
-                humanizationScore={result.humanization_score}
-              />
+              <h3 className="text-lg font-semibold text-zinc-900 mb-2">Analyzing and Optimizing</h3>
+              <p className="text-sm text-zinc-500 max-w-sm mx-auto mb-6">
+                {agentState === 'uploading' && 'Reading your resume...'}
+                {agentState === 'analyzing' && 'Matching your experience against the job description...'}
+                {agentState === 'planning' && 'Formulating the best narrative strategy...'}
+                {agentState === 'writing' && 'Rewriting content and highlighting key achievements...'}
+                {agentState === 'scoring' && 'Calculating final ATS score and compatibility...'}
+                {!['uploading', 'analyzing', 'planning', 'writing', 'scoring'].includes(agentState) && 'This may take up to 30 seconds...'}
+              </p>
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-brand animate-pulse" />
+                <span className="h-2 w-2 rounded-full bg-brand/70 animate-pulse [animation-delay:150ms]" />
+                <span className="h-2 w-2 rounded-full bg-brand/40 animate-pulse [animation-delay:300ms]" />
+              </div>
+            </motion.div>
+          ) : result ? (
+            <motion.div
+              key="results"
+              className="space-y-4"
+              initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={transitionBase}
+            >
+              <ErrorBoundary fallback={<div className="p-4 rounded-xl border border-rose-200 bg-rose-50 text-rose-800 text-sm">Failed to load ATS Score.</div>}>
+                <ATSScore
+                  score={result.ats_score}
+                  matchedKeywords={result.matched_keywords}
+                  missingKeywords={result.missing_keywords}
+                  totalKeywords={result.total_keywords}
+                  onImproveAts={file ? handleImproveAts : undefined}
+                  improving={isProcessing}
+                  autoImproved={result.auto_improved}
+                  humanizationScore={result.humanization_score}
+                />
+              </ErrorBoundary>
 
               {/* ── Match Analysis ── */}
               {result.match_analysis && (
@@ -759,7 +782,7 @@ export default function UnifiedWorkspace({
                 )}
               </div>
 
-            </div>
+            </motion.div>
           ) : (
             <div className="panel flex-1 flex flex-col items-center justify-center text-zinc-400 text-sm min-h-[400px] p-8">
               <FileText className="w-10 h-10 text-zinc-300 mb-3 shrink-0" />

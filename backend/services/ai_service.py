@@ -2,8 +2,9 @@ import ast
 import json
 import os
 import re
-from openai import OpenAI
+
 from dotenv import load_dotenv
+from openai import OpenAI
 
 load_dotenv(override=True)
 
@@ -26,6 +27,16 @@ def _parse_json_response(content: str) -> dict:
         raise ValueError("Empty response from AI model")
     content = content.strip()
 
+    # ── Strip reasoning / thinking blocks (NVIDIA, DeepSeek R1, etc.) ──────
+    # Remove <think>...</think> and similar reasoning wrappers
+    content = re.sub(r"<think>[\s\S]*?</think>", "", content, flags=re.IGNORECASE)
+    content = re.sub(r"<reasoning>[\s\S]*?</reasoning>", "", content, flags=re.IGNORECASE)
+    # Remove leading prose before the first JSON object
+    first_brace = content.find("{")
+    if first_brace > 0:
+        content = content[first_brace:]
+    content = content.strip()
+
     if "```" in content:
         match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", content, re.IGNORECASE)
         if match:
@@ -36,9 +47,9 @@ def _parse_json_response(content: str) -> dict:
             if start != -1 and end != -1:
                 content = content[start : end + 1]
 
-    # Strategy 1: Standard json.loads
+    # Strategy 1: Standard json.loads (strict=False permits literal unescaped newlines inside strings)
     try:
-        data = json.loads(content)
+        data = json.loads(content, strict=False)
         if isinstance(data, dict):
             return data
         if isinstance(data, list):
@@ -61,7 +72,7 @@ def _parse_json_response(content: str) -> dict:
             
             blob = content[start:end+1]
             try:
-                data = json.loads(blob)
+                data = json.loads(blob, strict=False)
                 if isinstance(data, dict):
                     return data
             except Exception:
@@ -79,7 +90,7 @@ def _parse_json_response(content: str) -> dict:
             try:
                 cleaned = re.sub(r",\s*([\}\]])", r"\1", blob)
                 cleaned = re.sub(r"'([^'\\]*(?:\\.[^'\\]*)*)'", r'"\1"', cleaned)
-                data = json.loads(cleaned)
+                data = json.loads(cleaned, strict=False)
                 if isinstance(data, dict):
                     return data
             except Exception:
@@ -101,24 +112,14 @@ def _parse_json_response(content: str) -> dict:
 
 
 def _register_models():
-    """Build model registry from environment variables."""
+    """Build model registry from environment variables — only GLM-5 and GLM-4.7 Flash."""
     global MODEL_REGISTRY
     MODEL_REGISTRY = {}
 
-
-    # Kimi 2.5
-    kimi_key = os.environ.get("KIMI_API_KEY", "")
-    if not _is_placeholder(kimi_key):
-        MODEL_REGISTRY["kimi"] = {
-            "id": "kimi",
-            "display_name": "Kimi 2.5",
-            "endpoint": os.environ.get("KIMI_ENDPOINT", "https://bedrock-mantle.us-east-1.api.aws/v1"),
-            "api_key": kimi_key,
-            "model": os.environ.get("KIMI_MODEL", "moonshotai.kimi-k2.5"),
-        }
+    bedrock_token = os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
 
     # GLM-5
-    glm_key = os.environ.get("GLM_API_KEY", "")
+    glm_key = os.environ.get("GLM_API_KEY", "").strip() or bedrock_token
     glm_endpoint = os.environ.get("GLM_ENDPOINT", "https://bedrock-mantle.us-east-1.api.aws/v1")
     if not _is_placeholder(glm_key) and glm_endpoint:
         MODEL_REGISTRY["glm"] = {
@@ -127,31 +128,21 @@ def _register_models():
             "endpoint": glm_endpoint,
             "api_key": glm_key,
             "model": os.environ.get("GLM_MODEL", "zai.glm-5"),
+            "supports_embeddings": True,
         }
 
-    # Qwen3 Next 80B
-    qwen_key = os.environ.get("QWEN_API_KEY", "")
-    if not _is_placeholder(qwen_key):
-        MODEL_REGISTRY["qwen"] = {
-            "id": "qwen",
-            "display_name": "Qwen3 Next 80B",
-            "endpoint": os.environ.get("QWEN_ENDPOINT", "https://bedrock-mantle.us-east-1.api.aws/v1"),
-            "api_key": qwen_key,
-            "model": os.environ.get("QWEN_MODEL", "qwen.qwen3-next-80b-a3b-instruct"),
+    # GLM-4.7 Flash (Fast)
+    glm_flash_key = os.environ.get("GLM_FLASH_API_KEY", "").strip() or glm_key
+    glm_flash_endpoint = os.environ.get("GLM_FLASH_ENDPOINT", glm_endpoint)
+    if not _is_placeholder(glm_flash_key) and glm_flash_endpoint:
+        MODEL_REGISTRY["glm-flash"] = {
+            "id": "glm-flash",
+            "display_name": "GLM-4.7 Flash (Fast)",
+            "endpoint": glm_flash_endpoint,
+            "api_key": glm_flash_key,
+            "model": os.environ.get("GLM_FLASH_MODEL", "zai.glm-4.7-flash"),
+            "supports_embeddings": False,
         }
-
-    # MiniMax m2.5
-    minimax_key = os.environ.get("MINIMAX_API_KEY", "")
-    if not _is_placeholder(minimax_key):
-        MODEL_REGISTRY["minimax"] = {
-            "id": "minimax",
-            "display_name": "MiniMax m2.5",
-            "endpoint": os.environ.get("MINIMAX_ENDPOINT", "https://bedrock-mantle.us-east-1.api.aws/v1"),
-            "api_key": minimax_key,
-            "model": os.environ.get("MINIMAX_MODEL", "minimax.minimax-m2.5"),
-        }
-
-
 
 
 _register_models()
@@ -177,8 +168,7 @@ def get_available_models(is_admin: bool = False) -> list[dict]:
 def _normalize_endpoint(raw: str) -> str:
     endpoint = raw.strip().rstrip("/")
     for suffix in ("/models/chat/completions", "/chat/completions"):
-        if endpoint.endswith(suffix):
-            endpoint = endpoint[: -len(suffix)]
+        endpoint = endpoint.removesuffix(suffix)
     return endpoint
 
 
@@ -191,51 +181,222 @@ def _mask_secrets(text: str) -> str:
     return text
 
 
-def _get_client(model_id: str | None = None) -> tuple[OpenAI, str]:
-    """Return (client, model_name) for the given model_id."""
+def _resolve_model_id(model_id: str | None = None) -> str:
+    """Resolve the active provider ID with env/default fallback."""
     if not model_id:
         model_id = os.environ.get("DEFAULT_MODEL_ID", "glm")
 
     if model_id not in MODEL_REGISTRY:
         if MODEL_REGISTRY:
-            model_id = next(iter(MODEL_REGISTRY))
-        else:
-            raise RuntimeError("No AI models configured. Check your environment variables.")
+            return next(iter(MODEL_REGISTRY))
+        raise RuntimeError("No AI models configured. Check your environment variables.")
 
+    return model_id
+
+
+def _to_bool(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _merge_extra_body(existing: dict | None, defaults: dict) -> dict:
+    merged = dict(existing or {})
+    for key, value in defaults.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            nested = dict(merged[key])
+            nested.update(value)
+            merged[key] = nested
+        elif key not in merged:
+            merged[key] = value
+    return merged
+
+
+def _get_chat_completion_options(model_id: str | None = None) -> dict:
+    """Return provider-specific chat completion defaults."""
+    resolved_model_id = _resolve_model_id(model_id)
+
+    options: dict = {}
+    raw_max = os.environ.get("GLM_MAX_TOKENS", "").strip()
+    if raw_max:
+        options["max_tokens"] = int(raw_max)
+
+    raw_top_p = os.environ.get("GLM_TOP_P", "").strip()
+    if raw_top_p:
+        options["top_p"] = float(raw_top_p)
+
+    return options
+
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+# List of preferred fallback models
+_FALLBACK_CHAIN = ["glm-flash", "glm"]
+
+def _create_chat_completion(client: OpenAI, model_id: str | None = None, **kwargs):
+    """Create a chat completion with provider-level defaults applied and automatic fallback."""
+    import openai
+    
+    resolved = _resolve_model_id(model_id)
+    
+    def _attempt(current_client, current_model_id, current_kwargs):
+        provider_options = _get_chat_completion_options(current_model_id)
+        
+        if "max_tokens" in provider_options:
+            if "max_tokens" not in current_kwargs:
+                current_kwargs["max_tokens"] = provider_options["max_tokens"]
+
+        if "top_p" in provider_options and "top_p" not in current_kwargs:
+            current_kwargs["top_p"] = provider_options["top_p"]
+
+        if "extra_body" in provider_options:
+            current_kwargs["extra_body"] = _merge_extra_body(current_kwargs.get("extra_body"), provider_options["extra_body"])
+
+        return current_client.chat.completions.create(**current_kwargs)
+
+    try:
+        # First attempt with the requested model
+        return _attempt(client, resolved, dict(kwargs))
+    except (openai.RateLimitError, openai.APIStatusError) as e:
+        # If it's an APIStatusError, only retry if it's a 429
+        if isinstance(e, openai.APIStatusError) and getattr(e, "status_code", None) != 429:
+            raise e
+            
+        logger.warning(f"Rate limit hit on {resolved}. Attempting fallback models...")
+        
+        # Try fallbacks
+        for fallback_id in _FALLBACK_CHAIN:
+            if fallback_id == resolved or fallback_id not in MODEL_REGISTRY:
+                continue
+                
+            try:
+                logger.info(f"Trying fallback model: {fallback_id}")
+                fallback_client, fallback_model_name = _get_client(fallback_id)
+                fallback_kwargs = dict(kwargs)
+                fallback_kwargs["model"] = fallback_model_name
+                
+                return _attempt(fallback_client, fallback_id, fallback_kwargs)
+            except (openai.RateLimitError, openai.APIStatusError) as fallback_e:
+                if isinstance(fallback_e, openai.APIStatusError) and getattr(fallback_e, "status_code", None) != 429:
+                    logger.warning(f"Fallback {fallback_id} failed with non-429 error: {fallback_e}")
+                    continue # Try next if not a rate limit
+                logger.warning(f"Rate limit hit on fallback {fallback_id}.")
+                continue
+            except Exception as ex:
+                logger.error(f"Error on fallback {fallback_id}: {ex}")
+                continue
+                
+        # If all fallbacks fail (or aren't configured), raise the original error
+        raise e
+
+
+def _get_client(model_id: str | None = None) -> tuple[OpenAI, str]:
+    """Return (client, model_name) for the given model_id."""
+    model_id = _resolve_model_id(model_id)
     cfg = MODEL_REGISTRY[model_id]
 
     if model_id not in _clients:
+        import httpx
         endpoint = _normalize_endpoint(cfg["endpoint"])
         base_url = endpoint if endpoint.endswith("/") else endpoint + "/"
+        http_client = httpx.Client(
+            timeout=120.0,
+            follow_redirects=True,
+        )
         _clients[model_id] = OpenAI(
             base_url=base_url,
             api_key=cfg["api_key"],
-            timeout=45.0,      # reduced from 90s — prevents 180s stall on hung calls
+            timeout=120.0,
             max_retries=1,
+            http_client=http_client,
         )
 
     return _clients[model_id], cfg["model"]
 
 
-def _get_cheap_client(preferred_model_id: str | None = None) -> tuple[OpenAI, str]:
+# ── Task-based auto-routing ──────────────────────────────────────────────────
+# Heavy tasks (complex reasoning, full rewrites) → GLM-5
+# Light tasks (JD parse, gap analysis, fact check, critique) → GLM-4.7 Flash
+_HEAVY_TASKS = frozenset({
+    "rewrite",          # full resume rewrite
+    "rewrite_section",  # section-level rewrite
+    "humanize",         # humanization pass
+    "cover_letter",     # cover letter generation
+    "email",            # application email
+    "interview_prep",   # interview Q&A generation
+})
+_LIGHT_TASKS = frozenset({
+    "jd_analysis",      # job description parsing
+    "gap_analysis",     # keyword gap analysis
+    "fact_check",       # factual consistency check
+    "critique",         # section critique
+    "embedding",        # text embeddings
+})
+
+
+def get_client_for_task(task: str) -> tuple["OpenAI", str]:
     """
-    Return a client for low-stakes calls (gap analysis, planning, extraction).
-    Prefers glm → kimi → qwen → minimax → first available model.
-    Falls back to the user-selected model if no cheap model is registered.
+    Auto-select the best model for a given task.
+    Heavy reasoning tasks → GLM-5 (quality).
+    Fast/cheap tasks     → GLM-4.7 Flash (speed + cost).
+    Falls back gracefully if only one model is configured.
     """
-    _CHEAP_PREFERENCE = ["glm", "kimi", "qwen", "minimax"]
-    for candidate in _CHEAP_PREFERENCE:
+    if task in _LIGHT_TASKS and "glm-flash" in MODEL_REGISTRY:
+        return _get_client("glm-flash")
+    if task in _HEAVY_TASKS and "glm" in MODEL_REGISTRY:
+        return _get_client("glm")
+    # Fallback: use whatever is available
+    for candidate in ("glm", "glm-flash"):
         if candidate in MODEL_REGISTRY:
             return _get_client(candidate)
-    # Fall back to user-selected model
-    return _get_client(preferred_model_id)
+    return _get_client(None)
+
+
+def _get_cheap_client(preferred_model_id: str | None = None) -> tuple["OpenAI", str]:
+    """Legacy shim — routes light tasks to GLM-4.7 Flash automatically."""
+    return get_client_for_task("jd_analysis")
+
+
+def _get_embedding_client(preferred_model_id: str | None = None) -> tuple[str, OpenAI]:
+    """
+    Return (provider_id, openai_client) for embeddings.
+    Embeddings stay pinned to providers known to support them.
+    """
+    if preferred_model_id in MODEL_REGISTRY and MODEL_REGISTRY[preferred_model_id].get("supports_embeddings"):
+        client, _ = _get_client(preferred_model_id)
+        return preferred_model_id, client
+
+    explicit_id = os.environ.get("EMBEDDING_PROVIDER_ID", "").strip()
+    if explicit_id in MODEL_REGISTRY and MODEL_REGISTRY[explicit_id].get("supports_embeddings"):
+        client, _ = _get_client(explicit_id)
+        return explicit_id, client
+
+    for candidate in ["glm", "nvidia"]:
+        if candidate in MODEL_REGISTRY and MODEL_REGISTRY[candidate].get("supports_embeddings"):
+            client, _ = _get_client(candidate)
+            return candidate, client
+
+    raise RuntimeError(
+        "No embedding-capable model configured. Set EMBEDDING_PROVIDER_ID or configure a supported provider."
+    )
+
+
+def _get_embedding_model(provider_id: str) -> str:
+    """Return the embedding model to use for the active provider."""
+    if provider_id == "gemini":
+        return os.environ.get("GEMINI_EMBEDDING_MODEL", "text-embedding-004")
+    if provider_id == "nvidia":
+        return os.environ.get("NVIDIA_EMBEDDING_MODEL", "baai/bge-m3")
+    # GLM and all other providers behind bedrock-mantle use the same embedding model
+    return os.environ.get("EMBEDDING_MODEL", "amazon.titan-embed-text-v1")
 
 
 def get_embedding(text: str, model_id: str | None = None) -> list[float]:
     """Generate dense embeddings using the API.
-    Defaults to the amazon.titan-embed-text-v1 model as requested for dense vector search."""
-    client, _ = _get_cheap_client(model_id)
-    embed_model = os.environ.get("EMBEDDING_MODEL", "amazon.titan-embed-text-v1")
+    Raises RuntimeError if no embedding provider is available — callers
+    (rag_service, profile_rag_service) catch this and fall back to keyword matching."""
+    embedding_provider_id, client = _get_embedding_client(model_id)
+    embed_model = _get_embedding_model(embedding_provider_id)
     response = client.embeddings.create(
         input=[text.replace("\n", " ")],
         model=embed_model
@@ -292,9 +453,60 @@ BASE_SYSTEM_INSTRUCTIONS = """You are an Elite Resume Architect, ATS Optimizatio
 Your mission is to maximize interview callback probability while keeping every statement 100% truthful.
 Outputs must feel like they were written by an experienced human recruiter, not AI.
 
+INTERNAL REASONING & OPTIMIZATION PIPELINE:
+Before returning your final response, you MUST execute these steps internally. You must return ONLY the final polished version in the requested JSON format (do not output the step details in the text):
+
+Step 1: Write/draft the resume improvements.
+Step 2: Act as a critical Amazon / FAANG Recruiter. Read the draft, find weaknesses, identify vague descriptions, and evaluate impact density.
+Step 3: Rewrite the draft to fix all identified weaknesses.
+Step 4: Act as an ATS Parser. Review the updated draft, scan for missing target keywords, and verify they are present.
+Step 5: Rewrite the draft again to seamlessly integrate missing keywords while maintaining a natural human voice.
+
 TARGET OBJECTIVES:
 - ATS Score Target: 90–95% (NEVER target 100%, never keyword stuff; natural language and recruiter scanning take top priority).
 - Recruiter Ergonomics: Optimized for a 6–10 second skim.
+
+JOB DESCRIPTION PRIORITY:
+Treat the Job Description as the primary optimization target. For every required or preferred skill:
+1. If the candidate genuinely possesses the exact skill, emphasize it naturally where relevant.
+2. If the candidate has closely related experience, describe the transferable experience honestly without claiming expertise in the exact technology.
+   Examples: PostgreSQL ↔ MySQL, Flask ↔ Django, Azure ↔ AWS.
+3. If the candidate lacks the required skill, never fabricate experience or imply proficiency. Instead, optimize the resume around the candidate's strongest relevant qualifications.
+
+NO FAKE METRICS:
+If measurable impact is not explicitly provided, never invent percentages, time savings, revenue, user counts, performance improvements, or other numerical metrics. Instead, describe impact using truthful qualitative language such as:
+Successfully, Efficiently, Reliably, Scalable, Maintainable, Production-ready, Robust, Secure, Reusable, Well-tested.
+
+RECRUITER WRITING STANDARD (SINGLE PROFESSIONAL IDENTITY RULE):
+Write like an experienced recruiter is helping the candidate present their work honestly and clearly.
+- Detect & Enforce ONE Strong Identity: Before rewriting, determine the candidate's strongest career identity (e.g., Backend, Frontend, AI). Every section must relentlessly support this single identity. A recruiter must know what role they fit within 10 seconds.
+- Organize Skills logically (Languages, Backend, Frontend, Database, Cloud & Tools). Never use a flat list. Only include technologies they can confidently discuss.
+- Highlight real contributions, use natural language, avoid buzzwords.
+- Prefer evidence over adjectives. (e.g., "Built a backend service using X" instead of "Expert in X").
+- Never exaggerate or invent achievements.
+- Every bullet should immediately answer: What was built? Which technologies were used? Why does it matter?
+- Avoid sounding like marketing copy. The resume should feel authentic and written by a real software engineer.
+
+BULLET WRITING:
+Internally analyze accomplishments using STAR (Situation, Task, Action, Result). Do not expose STAR.
+Write bullets as: Action + Technology + Result.
+Examples:
+- Built REST APIs using Django and PostgreSQL for user authentication.
+- Developed a React dashboard for managing customer orders.
+- Improved database performance by optimizing SQL queries.
+Each bullet should describe one accomplishment.
+
+FINAL REVIEW:
+Before returning the response, silently verify:
+✓ No fabricated skills
+✓ No fabricated metrics
+✓ No fabricated technologies
+✓ Strong ATS keyword coverage
+✓ Natural keyword placement
+✓ Professional but simple English
+✓ No AI buzzwords
+✓ Resume sounds human-written
+✓ Every statement is supported by the candidate's original resume
 
 ABSOLUTE RULES:
 - Never invent: Experience, Companies, Projects, Numbers, Skills, Certifications, Achievements, Dates, Responsibilities.
@@ -311,20 +523,29 @@ ABSOLUTE RULES:
 - VARY bullet openers — never start 3+ bullets with the same verb.
 
 PROFESSIONAL SUMMARY (1–3 CONCISE LINES):
-- Include: Current Role, Experience Level, Core Technologies, Domain Expertise, Business Value, and Career Focus.
+- MUST follow this fixed formula:
+  1. Identity (e.g., Python Backend Developer with 5 years experience). Do not write "Seeking an opportunity" or apologize for being a fresher.
+  2. Core technologies (e.g., FastAPI, React, PostgreSQL). Never write "Various technologies" or "Knowledge of".
+  3. Evidence (e.g., "Built an AI Resume Builder supporting 4 ATS templates"). Use strong verbs (Built, Designed, Deployed) and numbers. Never write "Experienced in" or "Proficient in".
+  4. Value (What problems you solve for a team).
 - Natural recruiter tone. No generic self-praise buzzwords.
 
 PROFESSIONAL EXPERIENCE (3–5 IMPACT-DRIVEN BULLETS PER ROLE):
-- Every bullet formula: [Strong Action Verb] + [Task] + [**JD-Keyword/Technology**] + [**Measurable Impact/Metric**].
+- Every bullet formula: [Strong Action Verb] + [Task] + [**JD-Keyword/Technology**] + [**Measurable Impact/Metric or Power Descriptor**].
 - Bold ONLY: (1) JD-required keywords/tools, (2) quantifiable metrics, (3) 1-2 core tech used. MAX 2-3 **bolds** per bullet.
 - NEVER bold action verbs (built, designed, implemented, etc.) — only the tech, metric, or JD keyword gets bolded.
 - Each bullet answers: What was built? How was it built? What business or technical impact did it create?
 - NEVER begin bullets with: Worked on, Responsible for, Helped, Participated in, Involved in.
 
 PROJECTS (3–4 TECHNICAL BULLETS PER PROJECT):
-- Line 1: WHY project exists (one-line value proposition / architecture problem).
-- Line 2: HOW it was built (deep technical implementation & stack with **bold** key terms).
-- Line 3–4: WHAT impact or functionality it delivers (bold metrics, users, deployment, test coverage).
+- Recruiter-First Invariant: Projects must serve as proof of capability for the target role, not just a list of features.
+- Every project must answer these 4 questions across its bullets:
+  1. What problem did you solve? (WHY the project exists, value prop / core challenge)
+  2. What technologies did you use? (Listed in tech_stack)
+  3. What engineering work did YOU do? (HOW it was built, e.g. "Implemented JWT auth..." instead of "Used JWT")
+  4. Why should I care / what was the impact? (WHAT it delivers, e.g. performance improvements, latency reduction)
+- Dynamic Role Alignment: Shift bullet emphasis based on the target job (Backend focus on APIs/DBs/Auth/Architecture; Frontend on UI/UX/responsive/state; AI on LLMs/RAG/embeddings/agents; Cloud on Docker/Terraform/CI/CD).
+- Strict Relevance Sorting: Always sort and return projects in descending order of relevance to the target Job Description (best match first).
 
 TECHNICAL SKILLS:
 - Group into logical categories sorted by Job Description relevance: Languages, Frontend, Backend, Frameworks, Databases, Cloud, DevOps, AI / ML, Tools, Concepts."""
@@ -348,7 +569,7 @@ Return JSON with EXACTLY this shape:
     "name": "...", "email": "...", "phone": "...", "location": "...",
     "linkedin": "...", "github": "...", "website": "..."
   }},
-  "summary": "1-3 concise lines in natural recruiter tone covering current role, exp level, core stack, domain expertise, business value, and career focus.",
+  "summary": "1-3 concise lines following the strict formula: Identity -> Core Tech -> Evidence (Built/Deployed...) -> Value. No generic AI fluff.",
   "experience": [{{
     "title": "...", "company": "...", "location": "...",
     "start_date": "Mon YYYY", "end_date": "Mon YYYY or Present",
@@ -588,16 +809,158 @@ def _skill_in_original(skill: str, vocab: set) -> bool:
             return True
     return False
 
+def smart_truncate(text: str, max_chars: int) -> str:
+    """Truncate text to max_chars strictly at sentence or word boundaries."""
+    if not isinstance(text, str):
+        return ""
+    text = text.strip()
+    if len(text) <= max_chars:
+        return text
+    truncated = text[:max_chars]
+    # Find last sentence boundary
+    last_end = max(truncated.rfind('.'), truncated.rfind('?'), truncated.rfind('!'))
+    if last_end > 0:
+        return truncated[:last_end+1].strip()
+    # Fallback to word boundary
+    last_space = truncated.rfind(' ')
+    if last_space > 0:
+        return truncated[:last_space].strip() + "..."
+    return truncated + "..."
+
+# ── Banned AI Buzzwords & Rephrasing Map ──────────────────────────────────────
+_BANNED_PHRASE_REPLACEMENTS: dict[str, str] = {
+    r"\bleveraged\b": "used",
+    r"\butilized\b": "used",
+    r"\bharnessed\b": "applied",
+    r"\bfacilitated\b": "managed",
+    r"\bshowcased\b": "demonstrated",
+    r"\bdemonstrated ability to\b": "engineered",
+    r"\bhighly motivated\b": "",
+    r"\bresults-driven\b": "",
+    r"\bresults driven\b": "",
+    r"\bdynamic professional\b": "engineer",
+    r"\bpassionate\b": "",
+    r"\bhardworking\b": "",
+    r"\bdedicated\b": "",
+    r"\bself-motivated\b": "",
+    r"\bself motivated\b": "",
+    r"\bteam player\b": "",
+    r"\bquick learner\b": "",
+    r"\bspearheaded\b": "led",
+    r"\bsynergized\b": "integrated",
+    r"\brevolutionized\b": "optimized",
+    r"\bpioneered\b": "developed",
+    r"\bchampioned\b": "implemented",
+    r"\bdynamic\b": "",
+    r"\bbuilt and deployed\b": "built",
+    r"\borchestrated\b": "coordinated",
+}
+
+
+def _scan_and_rephrase_banned_phrases(text: str) -> str:
+    """Scan and replace/remove generic AI buzzwords from text."""
+    if not isinstance(text, str) or not text.strip():
+        return text or ""
+    result = text
+    for pattern, replacement in _BANNED_PHRASE_REPLACEMENTS.items():
+        result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
+    return re.sub(r" +", " ", result).strip()
+
+
+def _verify_numeric_metrics(text: str, original_text: str) -> str:
+    """Verify numeric claims in AI output against original text. Strips unverified numbers."""
+    if not isinstance(text, str) or not original_text:
+        return text or ""
+    metric_matches = list(re.finditer(r"\b\d+(?:\.\d+)?%|\$\d+(?:\.\d+)?[kKmMbB]?|\b\d+[xX]\b|\b\d{2,}\b", text))
+    if not metric_matches:
+        return text
+    orig_numbers = set(re.findall(r"\d+", original_text))
+    result = text
+    for m in metric_matches:
+        claim_str = m.group(0)
+        digits = re.findall(r"\d+", claim_str)
+        if digits and not any(d in orig_numbers for d in digits):
+            result = re.sub(re.escape(claim_str), "", result)
+    return re.sub(r" +", " ", result).strip()
+
+
+def _validate_bold_markers(bullet: str) -> str:
+    """Ensure ** bold markers are balanced (even count). Strip if unbalanced."""
+    if not isinstance(bullet, str):
+        return ""
+    count = bullet.count("**")
+    if count % 2 != 0:
+        return bullet.replace("**", "").replace("*", "").strip()
+    return bullet.strip()
+
+
+def _match_and_filter_entries(resume: dict, original_text: str) -> dict:
+    """Match returned experience and project entries against original_text. Strip fabricated entries."""
+    if not original_text or not isinstance(resume, dict):
+        return resume
+    orig_lower = original_text.lower()
+
+    # 1. Match Experience Entries by company name
+    exp_list = resume.get("experience", [])
+    if isinstance(exp_list, list) and exp_list:
+        legal_suffixes = {"inc", "llc", "corp", "corporation", "ltd", "pvt", "private", "limited", "services", "solutions", "co"}
+        filtered_exp = []
+        for exp in exp_list:
+            if not isinstance(exp, dict):
+                continue
+            company = str(exp.get("company", "")).strip()
+            if not company:
+                filtered_exp.append(exp)
+                continue
+            comp_tokens = [t.lower() for t in re.findall(r"\b[A-Za-z0-9]+\b", company) if t.lower() not in legal_suffixes and len(t) >= 3]
+            if not comp_tokens or any(tok in orig_lower for tok in comp_tokens):
+                filtered_exp.append(exp)
+        resume["experience"] = filtered_exp
+
+    # 2. Match Projects by project title / distinctive tokens
+    proj_list = resume.get("projects", [])
+    if isinstance(proj_list, list) and proj_list:
+        filtered_proj = []
+        for proj in proj_list:
+            if not isinstance(proj, dict):
+                continue
+            name = str(proj.get("name", "") or proj.get("title", "")).strip()
+            if not name:
+                filtered_proj.append(proj)
+                continue
+            name_tokens = [t.lower() for t in re.findall(r"\b[A-Za-z0-9]+\b", name) if len(t) >= 4 and t.lower() not in {"system", "platform", "management", "application", "project", "tool"}]
+            if not name_tokens or any(tok in orig_lower for tok in name_tokens):
+                filtered_proj.append(proj)
+        resume["projects"] = filtered_proj
+
+    return resume
+
 
 def _clean_resume(resume: dict, original_text: str | None = None) -> dict:
     """Post-process AI output to remove filler skills and enforce formatting.
-    When `original_text` is supplied, skills not found in the source resume
-    are removed to prevent the AI from hallucinating technologies.
+    Executes post-processing guards in exact sequence:
+      1. Banned Phrase Scan & Rephrase
+      2. Numeric Metric Guard (if original_text)
+      3. Project & Experience Entry Matcher (if original_text)
+      4. Smart Truncation (420-char summary, 180-char bullets cap)
+      5. Bold Marker Validation (balanced ** check)
     """
-    if isinstance(resume.get("summary"), str):
-        # Clean markdown formatting from summary without forcing 2-sentence truncation
-        resume["summary"] = resume["summary"].replace("**", "").replace("*", "").strip()
+    if not isinstance(resume, dict):
+        return resume
 
+    # ── Step 1 & 4 & 5: Clean & Truncate Summary ───────────────────────────
+    if isinstance(resume.get("summary"), str):
+        summary = _scan_and_rephrase_banned_phrases(resume["summary"])
+        if original_text:
+            summary = _verify_numeric_metrics(summary, original_text)
+        summary = smart_truncate(summary, 420)
+        resume["summary"] = _validate_bold_markers(summary)
+
+    # ── Step 3: Match & Filter Fabricated Entries ───────────────────────────
+    if original_text:
+        resume = _match_and_filter_entries(resume, original_text)
+
+    # ── Clean Skills Section ───────────────────────────────────────────────
     skills = resume.get("skills", {})
     if isinstance(skills, dict):
         categories = ("languages", "frontend", "backend", "frameworks", "databases", "cloud", "devops", "ai / ml", "tools", "concepts")
@@ -614,7 +977,6 @@ def _clean_resume(resume: dict, original_text: str | None = None) -> dict:
             "methodologies": "concepts",
         }
 
-        # Lowercase keys and apply mapping
         normalized_skills = {}
         for k, v in list(skills.items()):
             low_k = k.lower().strip()
@@ -654,10 +1016,8 @@ def _clean_resume(resume: dict, original_text: str | None = None) -> dict:
                 }
                 skills[category] = _dedupe_keep_order(cleaned)[:limits[category]]
 
-        # Keep valid non-empty categories
-        resume["skills"] = {k: skills[k] for k in categories if k in skills and skills[k]}
+        resume["skills"] = {k: skills[k] for k in categories if skills.get(k)}
 
-        # ── Hallucination guard ──────────────────────────────────────────────
         if original_text:
             vocab = _extract_original_vocab(original_text)
             for cat in list(resume["skills"].keys()):
@@ -666,12 +1026,23 @@ def _clean_resume(resume: dict, original_text: str | None = None) -> dict:
                     filtered = [s for s in items if _skill_in_original(s, vocab)]
                     resume["skills"][cat] = filtered if filtered else items
 
-    # Clean experience bullets (3-5 bullets max per job)
+    # ── Experience Bullets Post-Processing ─────────────────────────────────
     for exp in resume.get("experience", []):
         if isinstance(exp, dict) and isinstance(exp.get("bullets"), list):
-            exp["bullets"] = [b.replace("**", "").replace("*", "").strip() for b in exp["bullets"][:5]]
+            cleaned_bullets = []
+            for b in exp["bullets"][:5]:
+                if not isinstance(b, str) or not b.strip():
+                    continue
+                bullet = _scan_and_rephrase_banned_phrases(b)
+                if original_text:
+                    bullet = _verify_numeric_metrics(bullet, original_text)
+                bullet = smart_truncate(bullet, 180)
+                bullet = _validate_bold_markers(bullet)
+                if bullet:
+                    cleaned_bullets.append(bullet)
+            exp["bullets"] = cleaned_bullets
 
-    # Tech stack pollution filter — strip generic/concept words from project tech stacks
+    # ── Project Bullets Post-Processing ────────────────────────────────────
     _BANNED_TECH_STACK = {
         "testing", "unit test", "unit testing", "integration test", "integration testing",
         "automated testing", "web development", "front-end", "back-end", "frontend", "backend",
@@ -681,7 +1052,6 @@ def _clean_resume(resume: dict, original_text: str | None = None) -> dict:
         "problem-solving", "collaboration", "agile", "scrum", "sdlc",
     }
 
-    # Keep projects compact (3-4 bullets max per project)
     for proj in resume.get("projects", []):
         if not isinstance(proj, dict):
             continue
@@ -695,12 +1065,12 @@ def _clean_resume(resume: dict, original_text: str | None = None) -> dict:
 
         raw_bullets = proj.get("bullets")
         raw_desc = proj.get("description")
-        
+
         bullets_list = []
         if isinstance(raw_bullets, list) and raw_bullets:
-            bullets_list = [b.replace("**", "").replace("*", "").strip() for b in raw_bullets if isinstance(b, str) and b.strip()]
+            bullets_list = [b for b in raw_bullets if isinstance(b, str) and b.strip()]
         elif isinstance(raw_desc, list) and raw_desc:
-            bullets_list = [d.replace("**", "").replace("*", "").strip() for d in raw_desc if isinstance(d, str) and d.strip()]
+            bullets_list = [d for d in raw_desc if isinstance(d, str) and d.strip()]
         elif isinstance(raw_desc, str) and raw_desc.strip():
             plain_desc = raw_desc.replace("**", "").replace("*", "").strip()
             lines = [l.strip() for l in plain_desc.splitlines() if l.strip()]
@@ -708,13 +1078,17 @@ def _clean_resume(resume: dict, original_text: str | None = None) -> dict:
                 lines = [s.strip() for s in re.split(r"(?<=[.!?])\s+", plain_desc) if s.strip()]
             bullets_list = lines
 
-        if bullets_list:
-            final_bullets = bullets_list[:4]
-            proj["bullets"] = final_bullets
-            proj["description"] = "\n".join(final_bullets)
-        else:
-            proj["bullets"] = []
-            proj["description"] = ""
+        cleaned_bullets = []
+        for b in bullets_list[:4]:
+            bullet = _scan_and_rephrase_banned_phrases(b)
+            if original_text:
+                bullet = _verify_numeric_metrics(bullet, original_text)
+            bullet = smart_truncate(bullet, 180)
+            bullet = _validate_bold_markers(bullet)
+            if bullet:
+                cleaned_bullets.append(bullet)
+        proj["bullets"] = cleaned_bullets
+        proj["description"] = "\n".join(cleaned_bullets)
 
     return resume
 
@@ -745,8 +1119,8 @@ def _safe_call(fn):
 
 @_safe_call
 def analyse_job_description(jd_text: str, model_id: str | None = None) -> dict:
-    client, model = _get_client(model_id)
-    response = client.chat.completions.create(
+    client, model = _get_cheap_client(model_id)
+    response = _create_chat_completion(client, model_id,
         model=model,
         messages=[
             {"role": "system", "content": ANALYSIS_SYSTEM},
@@ -791,7 +1165,7 @@ def rewrite_resume(
     if extra_context:
         system_prompt = extra_context + "\n\n" + REWRITE_SYSTEM
 
-    response = client.chat.completions.create(
+    response = _create_chat_completion(client, model_id,
         model=model,
         messages=[
             {"role": "system", "content": system_prompt},
@@ -815,15 +1189,26 @@ def rewrite_resume(
 
 @_safe_call
 def improve_resume_for_ats(
-    resume: dict,
+    resume: dict | str,
     jd_text: str,
-    job_analysis: dict,
+    job_analysis: dict | str,
     missing_keywords: list[str],
     model_id: str | None = None,
 ) -> dict:
+    if isinstance(resume, str):
+        try:
+            resume = json.loads(resume)
+        except Exception:
+            resume = {"summary": resume}
+    if isinstance(job_analysis, str):
+        try:
+            job_analysis = json.loads(job_analysis)
+        except Exception:
+            job_analysis = {}
+
     client, model = _get_client(model_id)
     density_targets = job_analysis.get("keyword_density_targets", [])
-    response = client.chat.completions.create(
+    response = _create_chat_completion(client, model_id,
         model=model,
         messages=[
             {"role": "system", "content": ATS_IMPROVE_SYSTEM},
@@ -842,7 +1227,7 @@ def improve_resume_for_ats(
         response_format={"type": "json_object"},
     )
     result = _parse_json_response(_extract_content(response))
-    return _clean_resume(result)
+    return _clean_resume(result, original_text=json.dumps(resume))
 
 
 @_safe_call
@@ -853,7 +1238,7 @@ def generate_cover_letter(
     model_id: str | None = None,
     rag_context: str = "",
 ) -> dict:
-    client, model = _get_client(model_id)
+    client, model = _get_cheap_client(model_id)
     personal = tailored_resume.get("personal_info", {})
     name = personal.get("name", "the candidate")
     summary = tailored_resume.get("summary", "")
@@ -890,7 +1275,7 @@ def generate_cover_letter(
     )
     top_skills = ", ".join(all_skills[:10])
 
-    response = client.chat.completions.create(
+    response = _create_chat_completion(client, model_id,
         model=model,
         messages=[
             {"role": "system", "content": COVER_LETTER_SYSTEM},
@@ -923,7 +1308,7 @@ def generate_application_email(
     model_id: str | None = None,
     rag_context: str = "",
 ) -> dict:
-    client, model = _get_client(model_id)
+    client, model = _get_cheap_client(model_id)
     personal = tailored_resume.get("personal_info", {})
     name = personal.get("name", "the candidate")
     summary = tailored_resume.get("summary", "")
@@ -947,7 +1332,7 @@ def generate_application_email(
     )
     top_skills = ", ".join(all_skills[:8])
 
-    response = client.chat.completions.create(
+    response = _create_chat_completion(client, model_id,
         model=model,
         messages=[
             {"role": "system", "content": APPLICATION_EMAIL_SYSTEM},
@@ -973,8 +1358,8 @@ def generate_application_email(
 @_safe_call
 def suggest_job_search_params(resume_text: str, model_id: str | None = None) -> dict:
     """Analyze a raw resume and suggest the best job search term and location."""
-    client, model = _get_client(model_id)
-    response = client.chat.completions.create(
+    client, model = _get_cheap_client(model_id)
+    response = _create_chat_completion(client, model_id,
         model=model,
         messages=[
             {"role": "system", "content": JOB_SEARCH_SUGGESTION_SYSTEM},
@@ -1056,8 +1441,8 @@ def plan_analysis(
     model_id: str | None = None,
 ) -> dict:
     """Agent planning step: decide rewrite strategy before touching the resume."""
-    client, model = _get_client(model_id)
-    response = client.chat.completions.create(
+    client, model = _get_cheap_client(model_id)
+    response = _create_chat_completion(client, model_id,
         model=model,
         messages=[
             {"role": "system", "content": PLAN_SYSTEM},
@@ -1084,7 +1469,7 @@ def generate_interview_prep(
     model_id: str | None = None,
 ) -> dict:
     """Generate role-specific interview Q&A and preparation tips."""
-    client, model = _get_client(model_id)
+    client, model = _get_cheap_client(model_id)
 
     personal = tailored_resume.get("personal_info", {})
     name = personal.get("name", "the candidate")
@@ -1119,7 +1504,7 @@ def generate_interview_prep(
     required_skills = ", ".join(job_analysis.get("required_skills", [])[:8])
     responsibilities = " | ".join(job_analysis.get("key_responsibilities", [])[:4])
 
-    response = client.chat.completions.create(
+    response = _create_chat_completion(client, model_id,
         model=model,
         messages=[
             {"role": "system", "content": INTERVIEW_PREP_SYSTEM},
@@ -1166,12 +1551,14 @@ Experience titles: {experience_titles}
 Skills categories: {skills_keys}
 Projects: {project_names}
 
+{adaptive_context}
+
 Return JSON:
 {{
-  "critical_gaps": ["keyword that is completely absent from resume"],
+  "critical_gaps": ["keyword that is completely absent from resume with no bridgeable equivalent"],
   "quick_wins": ["keyword present in wrong section — just move it"],
   "section_priorities": {{
-    "summary": "specific instruction or null if already strong",
+    "summary": "1-3 concise lines following the strict formula: Identity -> Core Tech -> Evidence -> Value.",
     "experience": "specific instruction or null if already strong",
     "skills": "specific instruction or null if already strong",
     "projects": "specific instruction or null if already strong"
@@ -1188,11 +1575,17 @@ def gap_analysis(
     ats_score: int,
     missing_keywords: list[str],
     model_id: str | None = None,
+    adaptive_report: dict | None = None,  # NEW: from adaptive_gap.adaptive_gap_diff()
 ) -> dict:
     """
     Dedicated gap analysis agent.
     Uses cheap model — sends only section summaries, not full resume.
     Returns section-level instructions so the rewriter only touches what needs work.
+
+    When adaptive_report is provided, the prompt is enriched with:
+    - Bridgeable gap framing (auto-generated bridge sentences)
+    - Implicit domain expectations (HM assumes even if not in JD)
+    - Critical gaps (truly missing, no bridge)
     """
     client, model = _get_cheap_client(model_id)
 
@@ -1207,7 +1600,16 @@ def gap_analysis(
         p.get("name", "") for p in resume_json.get("projects", [])[:3]
     )
 
-    response = client.chat.completions.create(
+    # Build adaptive context block if available
+    adaptive_context = ""
+    if adaptive_report:
+        try:
+            from services.adaptive_gap import build_gap_context_for_rewrite
+            adaptive_context = build_gap_context_for_rewrite(adaptive_report)
+        except Exception as _e:
+            logger.warning("adaptive gap context injection failed: %s", _e)
+
+    response = _create_chat_completion(client, model_id,
         model=model,
         messages=[
             {"role": "system", "content": GAP_ANALYSIS_SYSTEM},
@@ -1226,20 +1628,37 @@ def gap_analysis(
                     experience_titles=experience_titles,
                     skills_keys=skills_keys,
                     project_names=project_names,
+                    adaptive_context=adaptive_context,
                 ),
             },
         ],
         temperature=0.1,
-        max_tokens=700,
+        max_tokens=900,
         response_format={"type": "json_object"},
     )
     return _parse_json_response(_extract_content(response))
 
 
+# ── Adaptive Gap wrappers (thin; all prompt logic lives in adaptive_gap.py) ───
+
+
+def classify_role_domain(jd_text: str, model_id: str | None = None) -> dict:
+    """Domain classifier — delegates to adaptive_gap service."""
+    from services.adaptive_gap import classify_role_domain as _classify
+    return _classify(jd_text, model_id)
+
+
+def build_capability_graph(resume_json: dict, model_id: str | None = None) -> dict:
+    """Capability graph builder — delegates to adaptive_gap service."""
+    from services.adaptive_gap import build_capability_graph as _build
+    return _build(resume_json, model_id)
+
+
 # Section rewrite prompts — one per section type for focused, lean prompts
 _SECTION_SYSTEMS = {
-    "summary": """You rewrite ONLY the resume summary section. Write 1–3 concise lines.
-Line 1: Candidate's role, seniority, and core tech stack.
+    "summary": """You rewrite ONLY the resume summary section. Write strictly 1–3 concise lines.
+MUST follow this fixed formula: Identity -> Core Tech -> Evidence (Built/Deployed...) -> Value.
+Never use generic AI fluff or write 'Experienced in'. Use strong verbs like Built, Designed, Implemented.
 Line 2-3: Domain expertise, key business/technical impact, and career focus.
 Do NOT use AI buzzwords (no 'passionate', 'results-driven', 'hardworking', 'leveraged').
 Keep it natural, human, and recruiter-focused. DO NOT use markdown.
@@ -1261,9 +1680,11 @@ Return JSON: {"skills": {"Languages": [...], "Frontend": [...], "Backend": [...]
 
     "projects": """You rewrite ONLY the project entries.
 Provide 3 to 4 technical bullet points in the "bullets" array per project.
-Bullet 1: WHY the project exists (value proposition & core system problem).
-Bullet 2: HOW it was built (technical implementation, architecture, tech stack).
-Bullet 3-4: WHAT impact/functionality it delivers (metrics, scale, test coverage, deployment).
+Align projects dynamically to emphasize capabilities matching the target role (Backend focus on APIs/DB/Auth/Architecture; Frontend on UI/UX/state; AI on LLMs/RAG/agents; Cloud on DevOps/CI-CD).
+Strictly sort the projects array in descending order of relevance to the target job description (most relevant project first).
+Bullet 1: WHY the project exists (value proposition & core engineering challenge solved).
+Bullet 2: HOW it was built (your specific engineering contributions, e.g., "Designed REST APIs" instead of "Used REST APIs").
+Bullet 3-4: WHAT impact/functionality it delivers (scale, latency reduction, performance metrics, testing).
 DO NOT use markdown.
 Return JSON with the updated projects array containing objects with "name", "bullets", "description", and "tech_stack".""",
 }
@@ -1306,7 +1727,7 @@ def critique_section(
 ) -> dict:
     """Critique a rewritten section to verify keywords and style compliance."""
     client, model = _get_cheap_client(model_id)
-    response = client.chat.completions.create(
+    response = _create_chat_completion(client, model_id,
         model=model,
         messages=[
             {"role": "system", "content": CRITIQUE_SYSTEM},
@@ -1395,7 +1816,7 @@ def rewrite_section(
             "Max 8 items in tech_stack."
         )
 
-    response = client.chat.completions.create(
+    response = _create_chat_completion(client, model_id,
         model=model,
         messages=[
             {"role": "system", "content": system},
@@ -1472,7 +1893,7 @@ def humanize_sections(
     # Compact the sections — only send what was changed
     sections_json = json.dumps(changed_sections)[:2000]
 
-    response = client.chat.completions.create(
+    response = _create_chat_completion(client, model_id,
         model=model,
         messages=[
             {"role": "system", "content": HUMANIZE_SYSTEM},
@@ -1488,21 +1909,20 @@ def humanize_sections(
     return _parse_json_response(_extract_content(response))
 
 
-LINKEDIN_MESSAGE_SYSTEM = """You write a LinkedIn connection request note.
-Hard limit: 300 characters total (LinkedIn's limit).
-Tone: professional but direct. No buzzwords. No "I am excited". No emojis.
-Mention: candidate's role/stack + the position they're applying for.
-End with a clear ask: connect, chat, or review application.
+LINKEDIN_MESSAGE_SYSTEM = """You write a LinkedIn approach message to ask for a referral.
+Hard limit: 300 characters total (LinkedIn connection note limit).
+Tone: humanized, simple, and professional. You are asking someone at the company for a referral because you are an ideal candidate for their open role.
+Mention: The specific role they are hiring for, and a very brief highlight of the candidate's strongest matching skills/experience that makes them the ideal candidate.
+End with a polite ask to connect or chat about a referral.
 Return ONLY valid JSON."""
 
-LINKEDIN_MESSAGE_PROMPT = """Write a LinkedIn connection note for {name} applying for {job_title}.
+LINKEDIN_MESSAGE_PROMPT = """Write a LinkedIn referral request note for {name} applying for {job_title} at {company_type}.
 
-Their stack: {top_skills}
-One key project: {top_project}
-Company type: {company_type}
+Their top skills to highlight: {top_skills}
+Their most impressive project: {top_project}
 
 Return JSON: {{"message": "..."}}
-The message MUST be under 300 characters."""
+The message MUST be under 300 characters and sound like a real, polite human asking for a referral."""
 
 
 @_safe_call
@@ -1527,7 +1947,7 @@ def generate_linkedin_message(
     projects = tailored_resume.get("projects", [])
     top_project = projects[0].get("name", "") if projects else ""
 
-    response = client.chat.completions.create(
+    response = _create_chat_completion(client, model_id,
         model=model,
         messages=[
             {"role": "system", "content": LINKEDIN_MESSAGE_SYSTEM},
@@ -1617,7 +2037,7 @@ def generate_recruiter_tips(
     matched_skills = ", ".join([s for s in required[:6] if s.lower() in all_skills]) or "core stack"
     main_gap = (missing_keywords or [])[0] if missing_keywords else "none identified"
 
-    response = client.chat.completions.create(
+    response = _create_chat_completion(client, model_id,
         model=model,
         messages=[
             {"role": "system", "content": RECRUITER_TIPS_SYSTEM},
@@ -1639,3 +2059,272 @@ def generate_recruiter_tips(
         response_format={"type": "json_object"},
     )
     return _parse_json_response(response.choices[0].message.content)
+
+# =============================================================================
+# V4 12-STAGE PIPELINE AGENTS
+# =============================================================================
+
+@_safe_call
+def analyze_career_identity(resume_text: str, model_id: str | None = None) -> dict:
+    client, model = _get_cheap_client(model_id)
+    system_prompt = """You are the Career Identity Agent.
+Analyze the raw resume and definitively declare the candidate's primary role and identity.
+Output JSON:
+{
+  "primary_role": "Backend Developer / Data Scientist / etc",
+  "confidence": 95,
+  "supporting_evidence": ["Python (4 yrs)", "Built REST APIs", "AWS"],
+  "weak_areas": ["Frontend", "Leadership"]
+}
+"""
+    response = _create_chat_completion(client, model_id,
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"RESUME:\n{resume_text}"}
+        ],
+        temperature=0.2,
+        max_tokens=500,
+        response_format={"type": "json_object"}
+    )
+    return _parse_json_response(_extract_content(response))
+
+@_safe_call
+def map_evidence(resume_data: dict, jd_analysis: dict, model_id: str | None = None) -> dict:
+    client, model = _get_cheap_client(model_id)
+    system_prompt = """You are the Evidence Mapper.
+Map the candidate's parsed history directly to the Job Description requirements.
+For each JD requirement (must-have and preferred), find exact matching evidence from the resume.
+Output JSON:
+{
+  "evidence_map": {
+    "Python": ["Used Python in Project X", "5 years experience at Company Y"],
+    "Docker": []
+  },
+  "verified_score": 85
+}
+"""
+    import json
+    response = _create_chat_completion(client, model_id,
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"JD ANALYSIS:\n{json.dumps(jd_analysis)}\n\nRESUME:\n{json.dumps(resume_data)}"}
+        ],
+        temperature=0.2,
+        max_tokens=1500,
+        response_format={"type": "json_object"}
+    )
+    return _parse_json_response(_extract_content(response))
+
+@_safe_call
+def review_hr(resume_data: dict, model_id: str | None = None) -> dict:
+    client, model = _get_cheap_client(model_id)
+    system_prompt = """You are a real corporate HR recruiter screening this resume for the first time (20-second scan).
+Be honest and decisive — like you would for a real open role.
+
+Output JSON only:
+{
+  "first_impression": "one sentence gut reaction",
+  "perceived_role": "what role this person seems to fit",
+  "trustworthy_elements": ["concrete strengths you notice"],
+  "generic_elements": ["vague or template-sounding parts"],
+  "confusing_elements": ["things that would make you pause"],
+  "rejection_risks": ["why an HR screen might reject"],
+  "issues_to_fix": ["specific resume fixes needed before shortlist, empty if none"],
+  "shortlist_decision": "YES or NO",
+  "signal": "GREEN or RED",
+  "signal_reason": "one sentence why green or red",
+  "hr_readability_score": 0-100
+}
+
+Rules:
+- signal=GREEN only if shortlist_decision=YES and you would send this to a hiring manager.
+- signal=RED if you would reject or send back for revision.
+- Be specific; do not invent experience.
+"""
+    import json
+    response = _create_chat_completion(client, model_id,
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"RESUME:\n{json.dumps(resume_data)}"}
+        ],
+        temperature=0.4,
+        max_tokens=900,
+        response_format={"type": "json_object"}
+    )
+    result = _parse_json_response(_extract_content(response))
+    decision = str(result.get("shortlist_decision", "NO")).upper()
+    if "YES" in decision:
+        result["shortlist_decision"] = "YES"
+        result.setdefault("signal", "GREEN")
+    else:
+        result["shortlist_decision"] = "NO"
+        result["signal"] = "RED"
+    return result
+
+@_safe_call
+def review_hiring_manager(resume_data: dict, model_id: str | None = None) -> dict:
+    client, model = _get_cheap_client(model_id)
+    system_prompt = """You are a real technical hiring manager / senior engineer reviewing this resume for an interview decision.
+Judge technical depth, credibility of claims, and whether you would interview this person.
+
+Output JSON only:
+{
+  "interview_decision": "YES or NO",
+  "signal": "GREEN or RED",
+  "signal_reason": "one sentence why green or red",
+  "reason": "brief overall judgment",
+  "weak_bullets": ["bullets that feel weak or fluffy"],
+  "exaggerated_tech": ["tech claims that look overstated"],
+  "interview_defense_concerns": ["questions you would grill them on"],
+  "issues_to_fix": ["specific technical resume fixes needed, empty if none"],
+  "hm_confidence_score": 0-100
+}
+
+Rules:
+- signal=GREEN only if interview_decision=YES.
+- signal=RED if you would pass or demand a rewrite first.
+- Do not invent projects or skills.
+"""
+    import json
+    response = _create_chat_completion(client, model_id,
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"RESUME:\n{json.dumps(resume_data)}"}
+        ],
+        temperature=0.4,
+        max_tokens=900,
+        response_format={"type": "json_object"}
+    )
+    result = _parse_json_response(_extract_content(response))
+    decision = str(result.get("interview_decision", "NO")).upper()
+    if "YES" in decision:
+        result["interview_decision"] = "YES"
+        result.setdefault("signal", "GREEN")
+    else:
+        result["interview_decision"] = "NO"
+        result["signal"] = "RED"
+    return result
+
+@_safe_call
+def review_jd_poster(
+    rewritten_resume: dict,
+    original_resume_text: str,
+    job_analysis: dict,
+    jd_text: str,
+    model_id: str | None = None,
+) -> dict:
+    """Founder / hiring manager who wrote the JD — final stakeholder review + evidence check."""
+    client, model = _get_cheap_client(model_id)
+    system_prompt = """You are the founder / hiring lead who wrote this job description.
+You are reviewing a tailored resume against YOUR posting.
+
+Do two jobs:
+1) Evidence check — strip or rewrite any claim not supported by the ORIGINAL resume text.
+2) Hiring call — would YOU shortlist this person for your role?
+
+Output JSON only:
+{
+  "fact_checked_resume": { ...same resume structure, evidence-safe... },
+  "stripped_claims": ["unsupported claims removed or softened"],
+  "role_fit_notes": ["how well they match the JD priorities"],
+  "missing_for_role": ["JD requirements still weak or missing"],
+  "issues_to_fix": ["what must be fixed before you hire-signal green, empty if ready"],
+  "hire_decision": "YES or NO",
+  "signal": "GREEN or RED",
+  "signal_reason": "one sentence final stakeholder judgment",
+  "final_call": "one clear sentence: Interview / Revise / Pass — and why",
+  "evidence_credibility_score": 0-100
+}
+
+Rules:
+- Never invent experience. Prefer honesty over keyword stuffing.
+- signal=GREEN only if hire_decision=YES and evidence looks solid for this JD.
+- Keep fact_checked_resume complete and valid JSON matching the input resume shape.
+"""
+    import json
+    response = _create_chat_completion(client, model_id,
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": (
+                    f"JOB TITLE: {job_analysis.get('job_title', '')}\n"
+                    f"JD ANALYSIS:\n{json.dumps(job_analysis)}\n\n"
+                    f"JOB DESCRIPTION:\n{jd_text[:4000]}\n\n"
+                    f"ORIGINAL RESUME TEXT:\n{original_resume_text[:6000]}\n\n"
+                    f"TAILORED RESUME JSON:\n{json.dumps(rewritten_resume)}"
+                ),
+            },
+        ],
+        temperature=0.25,
+        max_tokens=4200,
+        response_format={"type": "json_object"}
+    )
+    result = _parse_json_response(_extract_content(response))
+    decision = str(result.get("hire_decision", "NO")).upper()
+    if "YES" in decision:
+        result["hire_decision"] = "YES"
+        result.setdefault("signal", "GREEN")
+    else:
+        result["hire_decision"] = "NO"
+        result["signal"] = "RED"
+    if not isinstance(result.get("fact_checked_resume"), dict):
+        result["fact_checked_resume"] = rewritten_resume
+    return result
+
+@_safe_call
+def rewrite_human_tone(resume_data: dict, mapped_evidence: dict, hr_review: dict, hm_review: dict, identity: dict, model_id: str | None = None) -> dict:
+    client, model = _get_client(model_id)
+    system_prompt = """You are an experienced resume writer hired after HR and a technical hiring manager reviewed this draft.
+Rewrite the resume so it sounds human and addresses their RED flags / issues_to_fix.
+
+Constraints:
+- Avoid AI buzzwords and empty filler.
+- Base EVERY bullet ONLY on mapped_evidence / proven experience.
+- Fix issues flagged in hr_review and hm_review.
+- Enforce identity.primary_role.
+Output exactly the same JSON structure as the input resume, fully rewritten.
+"""
+    import json
+    response = _create_chat_completion(client, model_id,
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"RESUME:\n{json.dumps(resume_data)}\n\nEVIDENCE:\n{json.dumps(mapped_evidence)}\n\nHR REVIEW:\n{json.dumps(hr_review)}\n\nHM REVIEW:\n{json.dumps(hm_review)}\n\nIDENTITY:\n{json.dumps(identity)}"}
+        ],
+        temperature=0.4,
+        max_tokens=4000,
+        response_format={"type": "json_object"}
+    )
+    return _parse_json_response(_extract_content(response))
+
+@_safe_call
+def fact_check(rewritten_resume: dict, original_resume_text: str, model_id: str | None = None) -> dict:
+    """Legacy alias — prefer review_jd_poster for full stakeholder review."""
+    client, model = _get_client(model_id)
+    system_prompt = """You are checking resume evidence honesty before a founder/hiring lead reviews it.
+If ANY claim, number, or technology cannot be proven by original_resume_text, strip it or rewrite honestly.
+Output JSON:
+{
+  "fact_checked_resume": { ... },
+  "stripped_claims": ["..."],
+  "evidence_credibility_score": 95
+}
+"""
+    import json
+    response = _create_chat_completion(client, model_id,
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"ORIGINAL:\n{original_resume_text}\n\nREWRITTEN:\n{json.dumps(rewritten_resume)}"}
+        ],
+        temperature=0.2,
+        max_tokens=4000,
+        response_format={"type": "json_object"}
+    )
+    return _parse_json_response(_extract_content(response))

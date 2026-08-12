@@ -1,16 +1,17 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Download, Eye, FileCode, Loader2, Pencil, Save } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 import type { TailoredResume } from '../types'
 import { exportLatex, exportPdf } from '../lib/api'
 import { buildContactItems, linkLabel, toHref } from '../lib/resumeLinks'
 import { FormatBoldText } from '../lib/formatBold'
 import ResumeEditor from './ResumeEditor'
 
-type TemplateId = 'modern' | 'classic' | 'minimal'
+type TemplateId = 'harshibar' | 'modern' | 'classic' | 'minimal'
 
 const TEMPLATES: { id: TemplateId; name: string; description: string; preview: React.ReactNode }[] = [
   {
-    id: 'modern',
+    id: 'harshibar',
     name: 'Harshibar (LaTeX)',
     description: 'Dense single-column · Industry standard SWE style',
     preview: (
@@ -110,14 +111,22 @@ function EntryRow({ left, right }: { left: React.ReactNode; right?: React.ReactN
   )
 }
 
-function ResumeSection({ title, children }: { title: string; children: React.ReactNode }) {
+const ResumeSection = React.memo(function ResumeSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="mb-1.5 last:mb-0">
-      <h4 className="resume-section-title">{title}</h4>
-      {children}
-    </section>
+    <AnimatePresence mode="popLayout">
+      <motion.section
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.3 }}
+        className="mb-1.5 last:mb-0"
+      >
+        <h4 className="resume-section-title">{title}</h4>
+        {children}
+      </motion.section>
+    </AnimatePresence>
   )
-}
+})
 
 function SkillRow({ label, items }: { label: string; items: string[] }) {
   if (items.length === 0) return null
@@ -658,7 +667,7 @@ const getScore = (n: number) => ({
 const EDIT_STORAGE_KEY = 'resume_unsaved_edits'
 
 export default function ResumePreview({ resume, atsScore, onResumeChange, onEditComplete, rescoring, jdKeywords }: Props) {
-  const [template, setTemplate] = useState<TemplateId>('modern')
+  const [template] = useState<TemplateId>('modern')
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
   const [exportingTex, setExportingTex] = useState(false)
@@ -822,28 +831,6 @@ export default function ResumePreview({ resume, atsScore, onResumeChange, onEdit
         </p>
       )}
 
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2.5">Choose Layout</p>
-        <div className="grid grid-cols-3 gap-2 sm:gap-3">
-          {TEMPLATES.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTemplate(t.id)}
-              className={`rounded-lg border p-1.5 sm:p-2.5 text-left transition-all focus:outline-none ${
-                template === t.id
-                  ? 'border-brand bg-brand-50 shadow-sm'
-                  : 'border-zinc-200 hover:border-zinc-300 bg-white'
-              }`}
-            >
-              {t.preview}
-              <p className={`mt-2 text-xs font-semibold ${template === t.id ? 'text-brand' : 'text-zinc-700'}`}>
-                {t.name}
-              </p>
-              <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{t.description}</p>
-            </button>
-          ))}
-        </div>
-      </div>
 
       {editing ? (
         <div className="rounded-xl border border-brand-100 bg-brand-50/30 p-4 sm:p-5">
@@ -866,6 +853,7 @@ export default function ResumePreview({ resume, atsScore, onResumeChange, onEdit
                 transformOrigin: 'top center',
               }}
             >
+              {template === 'harshibar' && <div className="px-7 py-5 flex-1 flex flex-col justify-start"><ProfessionalResume resume={resume} /></div>}
               {template === 'modern' && <div className="px-7 py-5 flex-1 flex flex-col justify-start"><ProfessionalResume resume={resume} /></div>}
               {template === 'classic' && <div className="px-7 py-5 flex-1 flex flex-col justify-start"><ClassicResume resume={resume} /></div>}
               {template === 'minimal' && <div className="flex-1 flex h-[842px]"><SidebarResume resume={resume} /></div>}

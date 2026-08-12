@@ -1,7 +1,6 @@
 import os
-from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Optional
+from pathlib import Path
 
 import bcrypt
 from dotenv import load_dotenv
@@ -30,7 +29,32 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+    if not hashed or not plain:
+        return False
+    try:
+        if isinstance(plain, str):
+            plain_bytes = plain.encode("utf-8")
+        elif isinstance(plain, bytes):
+            plain_bytes = plain
+        else:
+            return False
+
+        if isinstance(hashed, str):
+            hashed_bytes = hashed.encode("utf-8")
+        elif isinstance(hashed, bytes):
+            hashed_bytes = hashed
+        else:
+            return False
+
+        # Bcrypt hashes require at least 22 characters for salt/header
+        if len(hashed_bytes) < 22:
+            return False
+
+        return bcrypt.checkpw(plain_bytes, hashed_bytes)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:
+        return False
 
 
 def create_access_token(user_id: int, email: str) -> str:
@@ -39,7 +63,7 @@ def create_access_token(user_id: int, email: str) -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def decode_token(token: str) -> Optional[dict]:
+def decode_token(token: str) -> dict | None:
     try:
         return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except JWTError:

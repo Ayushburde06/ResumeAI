@@ -5,7 +5,8 @@ import type { AuthUser } from '../types'
 interface AuthContextValue {
   user: AuthUser | null
   token: string | null
-  login: (token: string, user: AuthUser) => void
+  login: (email: string, password: string) => Promise<void>
+  register: (name: string, email: string, password: string) => Promise<void>
   logout: () => void
   refreshUser: () => Promise<void>
   isLoading: boolean
@@ -14,113 +15,89 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue>({
   user: null,
   token: null,
-  login: () => {},
+  login: async () => {},
+  register: async () => {},
   logout: () => {},
   refreshUser: async () => {},
-  isLoading: false,
+  isLoading: true,
 })
-
-function normalizeAuthUser(value: unknown): AuthUser | null {
-  if (typeof value !== 'object' || value === null) return null
-  const data = value as Record<string, unknown>
-  const id = typeof data.id === 'number' ? data.id : Number(data.id)
-  if (!Number.isFinite(id)) return null
-
-  return {
-    id,
-    name: typeof data.name === 'string' ? data.name : String(data.name ?? ''),
-    email: typeof data.email === 'string' ? data.email : String(data.email ?? ''),
-    analyses_used: typeof data.analyses_used === 'number' ? data.analyses_used : Number(data.analyses_used ?? 0) || 0,
-    analyses_limit: typeof data.analyses_limit === 'number' ? data.analyses_limit : Number(data.analyses_limit ?? 3) || 3,
-    is_premium: typeof data.is_premium === 'boolean' ? data.is_premium : Boolean(data.is_premium),
-  }
-}
-
-function loadFromStorage(): { user: AuthUser | null; token: string | null } {
-  try {
-    const storedToken = localStorage.getItem('auth_token')
-    const storedUser = localStorage.getItem('auth_user')
-    if (storedToken && storedUser) {
-      const parsed = normalizeAuthUser(JSON.parse(storedUser))
-      if (parsed) return { user: parsed, token: storedToken }
-    }
-  } catch {
-    localStorage.removeItem('auth_token')
-    localStorage.removeItem('auth_user')
-  }
-  return { user: null, token: null }
-}
 
 const BASE = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const initial = loadFromStorage()
-  const [user, setUser] = useState<AuthUser | null>(initial.user)
-  const [token, setToken] = useState<string | null>(initial.token)
-  // isLoading is true only on initial page-load when a token exists (verifying it)
-  const [isLoading, setIsLoading] = useState<boolean>(!!initial.token)
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [token, setToken] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
-  // Re-runs whenever token changes (on page load AND after fresh login/register)
-  // This guarantees analyses_used is always the live value from the DB
+  // On mount, check local storage for a saved token
   useEffect(() => {
-    if (!token) {
+    const savedToken = localStorage.getItem('auth_token')
+    if (savedToken) {
+      setToken(savedToken)
+      axios.defaults.headers.common['Authorization'] = `Bearer ${savedToken}`
+      fetchBackendUser(savedToken)
+    } else {
+      setIsLoading(false)
+    }
+  }, [])
+
+  async function fetchBackendUser(accessToken: string) {
+    if (!accessToken) {
       setIsLoading(false)
       return
     }
-    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+    try {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`
+      const { data } = await axios.get<AuthUser>(`${BASE}/auth/me`)
+      setUser(data)
+    } catch {
+      // Token expired or invalid — clear it
+      setUser(null)
+      setToken(null)
+      localStorage.removeItem('auth_token')
+      delete axios.defaults.headers.common['Authorization']
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
-    axios.get<AuthUser>(`${BASE}/auth/me`)
-      .then(({ data }) => {
-        setUser((prev) => {
-          const updated = prev ? { ...prev, ...data } : data
-          localStorage.setItem('auth_user', JSON.stringify(updated))
-          return updated
-        })
-      })
-      .catch(() => {
-        // Token expired or invalid — clear session
-        localStorage.removeItem('auth_token')
-        localStorage.removeItem('auth_user')
-        setToken(null)
-        setUser(null)
-        delete axios.defaults.headers.common['Authorization']
-      })
-      .finally(() => setIsLoading(false))
-  }, [token]) // ← depends on token, re-fetches on every login
-
-  function login(newToken: string, newUser: AuthUser) {
-    setToken(newToken)
-    setUser(newUser)
+  async function login(email: string, password: string) {
+    const { data } = await axios.post(`${BASE}/auth/login`, { email, password })
+    const { token: newToken, ...userData } = data
     localStorage.setItem('auth_token', newToken)
-    localStorage.setItem('auth_user', JSON.stringify(newUser))
     axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
-    // useEffect above will fire because token changed → fetches live stats
+    setToken(newToken)
+    setUser(userData)
+  }
+
+  async function register(name: string, email: string, password: string) {
+    const { data } = await axios.post(`${BASE}/auth/register`, { name, email, password })
+    const { token: newToken, ...userData } = data
+    localStorage.setItem('auth_token', newToken)
+    axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
+    setToken(newToken)
+    setUser(userData)
+  }
+
+  function logout() {
+    setUser(null)
+    setToken(null)
+    localStorage.removeItem('auth_token')
+    delete axios.defaults.headers.common['Authorization']
   }
 
   async function refreshUser() {
     if (!token) return
     try {
       const { data } = await axios.get<AuthUser>(`${BASE}/auth/me`)
-      setUser((prev) => {
-        const updated = prev ? { ...prev, ...data } : data
-        localStorage.setItem('auth_user', JSON.stringify(updated))
-        return updated
-      })
+      setUser((prev) => (prev ? { ...prev, ...data } : data))
     } catch {
-      // silently fail — stale data is better than crashing
+      // silently fail
     }
   }
 
-  function logout() {
-    setToken(null)
-    setUser(null)
-    localStorage.removeItem('auth_token')
-    localStorage.removeItem('auth_user')
-    delete axios.defaults.headers.common['Authorization']
-  }
-
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, refreshUser, isLoading }}>
+    <AuthContext.Provider value={{ user, token, login, register, logout, refreshUser, isLoading }}>
       {children}
     </AuthContext.Provider>
   )

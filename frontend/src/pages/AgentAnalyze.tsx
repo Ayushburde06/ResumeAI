@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Sparkles, Upload, FileText, AlertCircle, Loader2, Brain, BookOpen, PenTool, RefreshCw, ClipboardCheck, CheckCircle2, Zap } from 'lucide-react'
-import { agentAnalyze } from '../lib/api'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
+import { ArrowLeft, Sparkles, Upload, FileText, AlertCircle, Loader2, RefreshCw, CheckCircle2, Zap, UserCircle, Search, Settings, Flag } from 'lucide-react'
+import { agentAnalyze, agentAnalyzeFromProfile, fetchProfile } from '../lib/api'
 import type { AgentStep, AgentAnalyzeResult } from '../types'
 import AgentProgressPanel from '../components/AgentProgressPanel'
 import { useAuth } from '../context/AuthContext'
@@ -10,10 +10,14 @@ const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 
 export default function AgentAnalyze() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user, refreshUser } = useAuth()
+  const navState = location.state as { fromProfile?: boolean; job_description?: string } | null
 
+  const [inputMode, setInputMode] = useState<'upload' | 'profile'>(navState?.fromProfile ? 'profile' : 'upload')
+  const [profileReady, setProfileReady] = useState<boolean | null>(null)
   const [resumeFile, setResumeFile] = useState<File | null>(null)
-  const [jobDesc, setJobDesc] = useState('')
+  const [jobDesc, setJobDesc] = useState(navState?.job_description ?? '')
   const [dragging, setDragging] = useState(false)
   const [isRunning, setIsRunning] = useState(false)
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([])
@@ -26,6 +30,12 @@ export default function AgentAnalyze() {
     return () => {
       abortRef.current?.()
     }
+  }, [])
+
+  useEffect(() => {
+    fetchProfile()
+      .then((p) => setProfileReady(p.is_complete))
+      .catch(() => setProfileReady(false))
   }, [])
 
   const handleFile = (file: File) => {
@@ -50,8 +60,16 @@ export default function AgentAnalyze() {
   }, [])
 
   const handleStart = () => {
-    if (!resumeFile || jobDesc.trim().length < 50) {
-      setError('Please upload a resume and enter a job description with at least 50 characters.')
+    if (jobDesc.trim().length < 50) {
+      setError('Please enter a job description with at least 50 characters.')
+      return
+    }
+    if (inputMode === 'upload' && !resumeFile) {
+      setError('Please upload a resume or switch to My Profile mode.')
+      return
+    }
+    if (inputMode === 'profile' && !profileReady) {
+      setError('Complete your profile first.')
       return
     }
     if (!user) {
@@ -64,37 +82,38 @@ export default function AgentAnalyze() {
     setError(null)
 
     historyIdRef.current = null
-    const cleanup = agentAnalyze(
-      resumeFile,
-      jobDesc,
-      undefined,
-      (step) => {
-        // Capture history_id when it arrives so we can attach it to the result
-        if (step.step === 'history_saved' && step.history_id) {
-          historyIdRef.current = step.history_id
-        } else {
-          setAgentSteps((prev) => [...prev, step])
-        }
-      },
-      (result: AgentAnalyzeResult) => {
-        setIsRunning(false)
-        abortRef.current = null
-        // Refresh quota badge so agent-mode usage is reflected immediately
-        refreshUser().catch(() => {})
-        navigate('/', {
-          state: {
-            result: { ...result, history_id: historyIdRef.current ?? undefined },
-            job_description: jobDesc,
-            model_id: '',
-          },
-        })
-      },
-      (errMsg) => {
-        setIsRunning(false)
-        abortRef.current = null
-        setError(errMsg)
-      },
-    )
+
+    const onStep = (step: AgentStep) => {
+      if (step.step === 'history_saved' && step.history_id) {
+        historyIdRef.current = step.history_id
+      } else {
+        setAgentSteps((prev) => [...prev, step])
+      }
+    }
+
+    const onComplete = (result: AgentAnalyzeResult) => {
+      setIsRunning(false)
+      abortRef.current = null
+      refreshUser().catch(() => {})
+      navigate('/', {
+        state: {
+          result: { ...result, history_id: historyIdRef.current ?? undefined },
+          job_description: jobDesc,
+          model_id: '',
+        },
+      })
+    }
+
+    const onError = (errMsg: string) => {
+      setIsRunning(false)
+      abortRef.current = null
+      setError(errMsg)
+    }
+
+    const cleanup = inputMode === 'profile'
+      ? agentAnalyzeFromProfile(jobDesc, undefined, onStep, onComplete, onError)
+      : agentAnalyze(resumeFile!, jobDesc, undefined, onStep, onComplete, onError)
+
     abortRef.current = cleanup
   }
 
@@ -105,7 +124,9 @@ export default function AgentAnalyze() {
     setAgentSteps([])
   }
 
-  const canStart = !!resumeFile && jobDesc.trim().length >= 50 && !isRunning
+  const canStart = jobDesc.trim().length >= 50 && !isRunning && (
+    inputMode === 'profile' ? profileReady === true : !!resumeFile
+  )
 
   return (
     <div className="min-h-screen pt-14 text-slate-ink">
@@ -132,13 +153,12 @@ export default function AgentAnalyze() {
       <div className="page-shell py-8 lg:py-10">
         <div className="text-center mb-10">
           <div className="hero-kicker mb-5">
-            <span className="w-1.5 h-1.5 bg-brand rounded-full animate-pulse" />
             Multi-agent optimization with up to 3 refinement passes
           </div>
-          <h1 className="hero-title text-4xl md:text-5xl lg:text-[56px] mb-4">
+          <h1 className="text-3xl md:text-4xl lg:text-5xl font-semibold tracking-tight text-slate-ink mb-4">
             Optimize with AI Agent
           </h1>
-          <p className="hero-copy max-w-3xl mx-auto text-base md:text-lg">
+          <p className="hero-copy max-w-3xl mx-auto">
             The agent parses the resume, reads the job description, retrieves relevant knowledge, rewrites only what evidence supports, validates ATS compatibility, and reflects before the final export.
           </p>
         </div>
@@ -146,9 +166,29 @@ export default function AgentAnalyze() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="space-y-6">
             <div className="panel p-6">
-              <label className="block text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500 mb-2">
-                Resume file
-              </label>
+              <div className="flex items-center justify-between mb-3">
+                <label className="block text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                  Resume source
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setInputMode('upload')}
+                    className={`text-xs px-3 py-1 rounded-full ${inputMode === 'upload' ? 'bg-zinc-100 font-semibold' : 'text-zinc-500'}`}
+                  >
+                    Upload PDF
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInputMode('profile')}
+                    className={`text-xs px-3 py-1 rounded-full ${inputMode === 'profile' ? 'bg-zinc-100 font-semibold' : 'text-zinc-500'}`}
+                  >
+                    My Profile
+                  </button>
+                </div>
+              </div>
+
+              {inputMode === 'upload' ? (
               <div
                 className={`agent-dropzone ${dragging ? 'dragging' : ''} ${resumeFile ? 'has-file' : ''}`}
                 onDragOver={(e) => {
@@ -188,10 +228,29 @@ export default function AgentAnalyze() {
                   </div>
                 )}
               </div>
+              ) : (
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-5 space-y-2">
+                  <div className="flex items-center gap-3">
+                    <UserCircle className="h-8 w-8 text-brand" />
+                    <div>
+                      <p className="text-sm font-semibold text-zinc-800">Profile + RAG agent</p>
+                      <p className="text-xs text-zinc-500">Uses saved projects & experience with profile RAG</p>
+                    </div>
+                  </div>
+                  {profileReady === false && (
+                    <p className="text-xs text-amber-700">
+                      Profile incomplete. <Link to="/profile" className="underline font-medium">Fill profile</Link>
+                    </p>
+                  )}
+                  {profileReady === true && (
+                    <p className="text-xs text-emerald-700">Profile ready — agent will retrieve relevant evidence chunks.</p>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="panel p-6">
-              <label className="block text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500 mb-2">
+              <label className="block text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500 mb-2">
                 Job description
               </label>
               <textarea
@@ -238,16 +297,15 @@ export default function AgentAnalyze() {
 
             {!isRunning && agentSteps.length === 0 && (
               <div className="agent-how-it-works">
-                <p className="text-zinc-500 text-xs font-bold uppercase tracking-[0.18em] mb-3">
+                <p className="text-zinc-500 text-xs font-bold uppercase tracking-[0.14em] mb-3">
                   How it works
                 </p>
                 {[
-                  { icon: <Brain className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />, text: 'Plans strategy based on your resume and JD' },
-                  { icon: <BookOpen className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />, text: 'Retrieves only relevant ATS and recruiter guidance' },
-                  { icon: <PenTool className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />, text: 'Rewrites the resume with refinement passes' },
-                  { icon: <RefreshCw className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />, text: 'Self-critiques after each pass' },
-                  { icon: <ClipboardCheck className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />, text: 'Validates ATS, humanization, and grammar' },
-                  { icon: <CheckCircle2 className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />, text: 'Returns the final review and supporting reports' },
+                  { icon: <Search className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />, text: 'HR recruiter screens the resume like a real shortlist pass' },
+                  { icon: <Settings className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />, text: 'Technical hiring manager judges interview readiness' },
+                  { icon: <Flag className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />, text: 'Founder / JD poster checks role fit and evidence honesty' },
+                  { icon: <RefreshCw className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />, text: 'If anyone gives red, the agent self-fixes and rechecks' },
+                  { icon: <CheckCircle2 className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />, text: 'Final call: Interview, Revise, or Pass with a clear signal' },
                 ].map((item, i) => (
                   <div key={i} className="flex items-start gap-2.5 text-sm text-zinc-600">
                     {item.icon}
@@ -262,19 +320,14 @@ export default function AgentAnalyze() {
             {(isRunning || agentSteps.length > 0) && (
               <div className="space-y-4">
                 {isRunning && (
-                  <div className="panel p-4 border-brand-100 bg-brand-50/40 animate-pulse">
+                  <div className="panel p-4 border-brand-100 bg-brand-50/40">
                     <div className="flex items-center gap-3">
                       <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white border border-brand-100 shadow-sm">
                         <Loader2 className="w-5 h-5 text-brand animate-spin" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-zinc-900">Agent optimizing resume</p>
-                        <p className="text-xs text-zinc-500">Planning, rewriting, validating, and reflecting in sequence.</p>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="h-2 w-2 rounded-full bg-brand animate-pulse" />
-                        <span className="h-2 w-2 rounded-full bg-brand/70 animate-pulse [animation-delay:150ms]" />
-                        <span className="h-2 w-2 rounded-full bg-brand/40 animate-pulse [animation-delay:300ms]" />
+                        <p className="text-sm font-semibold text-zinc-900">Reviewers evaluating resume</p>
+                        <p className="text-xs text-zinc-500">HR, technical HM, and JD poster — then self-fix if needed.</p>
                       </div>
                     </div>
                   </div>

@@ -1,10 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field, field_validator
-
 from limiter import limiter
 from models.user import User
+from pydantic import BaseModel, Field, field_validator
+from services.job_service import (
+    JOB_TYPES,
+    SUPPORTED_SITES,
+    format_job_description,
+    search_jobs_async,
+)
+
 from routers.auth import require_user
-from services.job_service import JOB_TYPES, SUPPORTED_SITES, format_job_description, search_jobs_async
 
 router = APIRouter()
 

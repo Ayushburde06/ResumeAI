@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-import sys, io
+import sys
+
 # Force UTF-8 output on Windows so status symbols print correctly
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -10,7 +10,7 @@ if hasattr(sys.stderr, "reconfigure"):
 """
 generate.py -- Agentic Resume Generation Pipeline
 =================================================
-Closed loop: Validate JSON → Build DOCX → Render HTML → PDF via WeasyPrint
+Closed loop: Validate JSON → Build DOCX → Render HTML → PDF via Playwright
            → Rasterize → Inspect pages → Auto-correct → Re-verify → Report
 
 Usage:
@@ -22,11 +22,10 @@ Usage:
 
 import argparse
 import json
-import re
 import sys
-import textwrap
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
+
 
 # ── third-party guards ────────────────────────────────────────────────────────
 def _require(module, install_hint):
@@ -40,11 +39,12 @@ jsonschema  = _require("jsonschema",  "pip install jsonschema")
 docx_mod    = _require("docx",        "pip install python-docx")
 pdfium      = _require("pypdfium2",   "pip install pypdfium2")
 PIL_mod     = _require("PIL",         "pip install Pillow")
-weasyprint_mod = _require("weasyprint", "pip install weasyprint")
-from docx.shared import Pt, Inches, RGBColor
+playwright_mod = _require("playwright", "pip install playwright")
+from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Inches, Pt, RGBColor
 from PIL import Image
 
 # ── paths ─────────────────────────────────────────────────────────────────────
@@ -583,15 +583,21 @@ def build_html(data: dict, p: TypographyParams) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 4 ─ WEASYPRINT RENDERER  (HTML → PDF)
+# 4 ─ PLAYWRIGHT RENDERER  (HTML → PDF)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def render_pdf(html: str, out_path: Path) -> Path:
-    """Render an HTML string to a PDF file using WeasyPrint."""
-    import weasyprint
-    pdf_bytes = weasyprint.HTML(string=html).write_pdf()
+    """Render an HTML string to a PDF file using Playwright."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.set_content(html, wait_until="networkidle", timeout=30000)
+        pdf_bytes = page.pdf(format="A4", print_background=True, prefer_css_page_size=True)
+        browser.close()
+        
     if not pdf_bytes or not pdf_bytes.startswith(b"%PDF"):
-        raise RuntimeError("WeasyPrint did not return valid PDF bytes.")
+        raise RuntimeError("Playwright did not return valid PDF bytes.")
     out_path.write_bytes(pdf_bytes)
     return out_path
 
@@ -729,7 +735,7 @@ def run_pipeline(data: dict, label: str, max_iter: int = 6) -> dict:
         }})
 
         if not issues:
-            print(f"    PASS Visual check PASSED -- no layout issues detected")
+            print("    PASS Visual check PASSED -- no layout issues detected")
             break
 
         print(f"    FAIL Issues found: {issues}")
@@ -763,7 +769,7 @@ def run_pipeline(data: dict, label: str, max_iter: int = 6) -> dict:
     else:
         print(f"  ⚠  Reached max iterations ({max_iter}) without a clean pass")
 
-    print(f"\n  Final output:")
+    print("\n  Final output:")
     print(f"    DOCX  → {docx_out}")
     print(f"    PDF   → {pdf_out}")
     print(f"    Pages → {', '.join(p.name for p in images)}")
@@ -846,10 +852,10 @@ def main():
     else:
         print("\n  Pipeline complete with warnings — review screenshots in output/")
 
-    print(f"\n  Quick access:")
-    print(f"    edit   : resume_builder/resume_data.json")
-    print(f"    regen  : python resume_builder/generate.py")
-    print(f"    output : resume_builder/output/resume.docx")
+    print("\n  Quick access:")
+    print("    edit   : resume_builder/resume_data.json")
+    print("    regen  : python resume_builder/generate.py")
+    print("    output : resume_builder/output/resume.docx")
 
 
 if __name__ == "__main__":

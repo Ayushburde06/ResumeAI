@@ -16,7 +16,7 @@ export default function NotFound() {
         </div>
         <div className="text-left">
           <span className="block text-slate-ink font-semibold text-lg tracking-tight">ResumeAI</span>
-          <span className="block text-[11px] uppercase tracking-[0.22em] text-zinc-500">Tailoring workspace</span>
+          <span className="block text-[11px] uppercase tracking-[0.14em] text-zinc-500">Tailoring workspace</span>
         </div>
       </Link>
 

@@ -286,6 +286,16 @@ export interface AgentStep {
   }
   missing_keywords?: string[]
   history_id?: number
+  domain?: string
+  role_type?: string
+  skills_mapped?: number
+  bridgeable_count?: number
+  final_signal?: string
+  final_call?: string
+  signal?: string
+  signal_reason?: string
+  adaptive_gap_report?: any
+  domain_profile?: any
 }
 
 export interface AgentAnalyzeResult extends AnalyzeResponse {
@@ -321,4 +331,75 @@ export interface AgentAnalyzeResult extends AnalyzeResponse {
   }
   change_log?: Array<{ section: string; change: string }>
   history_id?: number
+  domain?: string
+  role_type?: string
+  skills_mapped?: number
+  bridgeable_count?: number
+  final_signal?: string
+  final_call?: string
+  signal?: string
+  signal_reason?: string
+  adaptive_gap_report?: any
+  domain_profile?: any
+}
+
+
+export interface ProfileExperience {
+  title: string
+  company: string
+  location: string
+  start_date: string
+  end_date: string
+  bullets: string[]
+  tech_stack?: string[]
+}
+
+export interface ProfileProject {
+  name: string
+  description: string
+  tech_stack: string[]
+  link: string
+  live_link: string
+  role?: string
+  problem?: string
+  solution?: string
+  architecture?: string
+  impact_metrics?: string[]
+  bullets?: string[]
+  challenges?: string
+  team_size?: string
+}
+
+export interface CareerProfile {
+  personal_info: PersonalInfo & { headline?: string }
+  summary: string
+  experience: ProfileExperience[]
+  education: Array<{
+    degree: string
+    institution: string
+    location: string
+    graduation_year: string
+    gpa: string
+    honors: string
+  }>
+  skills: {
+    languages: string[]
+    frameworks: string[]
+    databases: string[]
+    tools: string[]
+    concepts: string[]
+    cloud?: string[]
+    devops?: string[]
+  }
+  certifications: Array<{
+    name: string
+    issuer: string
+    year: string
+  }>
+  projects: ProfileProject[]
+}
+
+export interface ProfileResponse {
+  career_data: CareerProfile
+  is_complete: boolean
 }

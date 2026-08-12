@@ -15,7 +15,6 @@ Intended usage in the app:
 import re
 from typing import NamedTuple
 
-
 # ---------------------------------------------------------------------------
 # Buzzword / filler list — words that read as "AI-generated resume speak"
 # rather than something a person would say describing their own work.
@@ -66,10 +65,10 @@ _FILLER_RE = re.compile("|".join(FILLER_PHRASE_PATTERNS), re.IGNORECASE)
 
 # Signals that a bullet describes an outcome, not just a task.
 OUTCOME_SIGNAL_WORDS = {
-    "reduced", "increased", "cut", "improved", "eliminated", "prevented",
+    "reduced", "increased", "decreased", "decreasing", "cut", "improved", "eliminated", "prevented",
     "resolved", "fixed", "solved", "saved", "grew", "boosted", "doubled",
     "halved", "accelerated", "shortened", "lowered", "raised", "generated",
-    "recovered", "unblocked", "before", "after", "from", "to",
+    "recovered", "unblocked", "scaled", "slashed", "before", "after", "from", "to",
 }
 
 # Weak passive-voice openers ("was responsible for", "were tasked with", etc.)
@@ -219,9 +218,11 @@ def compute_humanization_score(resume: dict) -> HumanizationResult:
 
     # Start at 100, deduct for the things HR readers actually notice.
     score = 100.0
-    score -= (100 - pct_outcome) * 0.5      # missing outcomes hurts most
+    score -= (100 - pct_outcome) * 0.4      # missing outcomes hurts
     score -= pct_passive * 0.25
-    score -= pct_buzzword * 0.2
+    score -= pct_buzzword * 0.35            # penalize bullets with buzzwords
+    score -= min(25, len(all_buzzwords) * 5) # distinct buzzword count penalty across whole resume
+    score -= min(20, len(all_fillers) * 6)  # filler phrase penalty
     if avg_len > 26:
         score -= min(15, (avg_len - 26) * 1.5)
     score = max(0, min(100, round(score)))

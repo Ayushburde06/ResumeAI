@@ -14,15 +14,10 @@ const MODEL_META: Record<string, { badge: string; color: string; icon: ReactNode
     color: 'text-zinc-800 bg-zinc-100 border-zinc-200/80',
     icon: <Star className="w-3 h-3" />,
   },
-  gpt: {
-    badge: 'Premium',
-    color: 'text-violet-700 bg-violet-50 border-violet-200',
-    icon: <Zap className="w-3 h-3" />,
-  },
-  kimi: {
+  'glm-flash': {
     badge: 'Fast',
-    color: 'text-emerald-700 bg-emerald-50 border-emerald-200',
-    icon: <Cpu className="w-3 h-3" />,
+    color: 'text-amber-700 bg-amber-50 border-amber-200',
+    icon: <Zap className="w-3 h-3" />,
   },
 }
 

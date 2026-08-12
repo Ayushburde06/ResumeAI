@@ -3,12 +3,17 @@ test_pdf_generator.py — Unit tests for PDF generation service and single-page 
 """
 
 import pytest
+from services.layout_engine import (
+    choose_typography as _choose_typography,
+)
+from services.layout_engine import (
+    count_resume_words as _count_resume_words,
+)
 from services.pdf_generator import (
-    _count_resume_words,
-    _choose_typography,
-    _inject_typography,
-    generate_pdf,
     VALID_TEMPLATES,
+    BrowserManager,
+    _adaptive_layout,
+    generate_pdf,
 )
 
 SAMPLE_RESUME = {
@@ -93,25 +98,44 @@ def test_choose_typography_scales_down_for_dense_content():
     assert dense_spec["font_size"] <= 7.5
 
 
-def test_inject_typography_inserts_style_override():
-    html = "<html><head><title>Test</title></head><body><h1>Resume</h1></body></html>"
-    spec = _choose_typography(200)
-    injected = _inject_typography(html, spec)
+def test_adaptive_layout_scales_smoothly_for_resume_density():
+    short_resume = {"summary": "A concise summary."}
+    medium_resume = SAMPLE_RESUME
+    long_resume = {
+        "summary": " ".join(["Experienced engineer"] * 80),
+        "experience": [
+            {
+                "company": "Example",
+                "title": "Engineer",
+                "bullets": ["Delivered measurable improvements across a complex production system."] * 30,
+            }
+        ],
+        "projects": [{"name": "Project", "description": "A detailed project description."} for _ in range(5)],
+        "skills": {"languages": ["Python", "SQL", "Go", "TypeScript"]},
+    }
 
-    assert "<style>" in injected
-    assert "page-break-inside: auto !important;" in injected
-    assert "font-size:" in injected
-    assert injected.index("<style>") < injected.index("</head>")
+    short_layout = _adaptive_layout(short_resume)
+    medium_layout = _adaptive_layout(medium_resume)
+    long_layout = _adaptive_layout(long_resume)
 
+    assert short_layout["font_size"] > medium_layout["font_size"] > long_layout["font_size"]
+    assert short_layout["section_gap"] > medium_layout["section_gap"] > long_layout["section_gap"]
+    assert long_layout["font_size"] >= 7.75
+    assert long_layout["line_height"] >= 1.20
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize("template_name", list(VALID_TEMPLATES))
-def test_generate_pdf_produces_valid_pdf_bytes(template_name):
-    pdf_bytes = generate_pdf(SAMPLE_RESUME, template_name=template_name)
-    assert isinstance(pdf_bytes, bytes)
-    assert pdf_bytes.startswith(b"%PDF")
+async def test_generate_pdf_produces_valid_pdf_bytes(template_name):
+    try:
+        pdf_bytes = await generate_pdf(SAMPLE_RESUME, template_name=template_name)
+        assert isinstance(pdf_bytes, bytes)
+        assert pdf_bytes.startswith(b"%PDF")
+    finally:
+        await BrowserManager.close_all()
 
 
-def test_pdf_page_count_single_page_guarantee():
+@pytest.mark.asyncio
+async def test_pdf_page_count_single_page_guarantee():
     try:
         import pypdf
         reader_cls = pypdf.PdfReader
@@ -123,7 +147,10 @@ def test_pdf_page_count_single_page_guarantee():
             pytest.skip("Neither pypdf nor PyPDF2 installed for page count inspection")
 
     import io
-    for template_name in VALID_TEMPLATES:
-        pdf_bytes = generate_pdf(SAMPLE_RESUME, template_name=template_name)
-        reader = reader_cls(io.BytesIO(pdf_bytes))
-        assert len(reader.pages) == 1, f"Template '{template_name}' generated {len(reader.pages)} pages, expected 1"
+    try:
+        for template_name in VALID_TEMPLATES:
+            pdf_bytes = await generate_pdf(SAMPLE_RESUME, template_name=template_name)
+            reader = reader_cls(io.BytesIO(pdf_bytes))
+            assert len(reader.pages) == 1, f"Template '{template_name}' generated {len(reader.pages)} pages, expected 1"
+    finally:
+        await BrowserManager.close_all()

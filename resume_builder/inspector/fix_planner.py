@@ -24,7 +24,7 @@ def _load_env():
 
 _load_env()
 
-_BEDROCK_API_KEY  = os.getenv("QWEN_API_KEY", "")
+_BEDROCK_API_KEY  = os.getenv("AWS_BEARER_TOKEN_BEDROCK", "") or os.getenv("GLM_API_KEY", "") or os.getenv("QWEN_API_KEY", "")
 _BEDROCK_ENDPOINT = os.getenv("QWEN_ENDPOINT", "https://bedrock-mantle.us-east-1.api.aws/v1")
 _PLANNER_MODEL    = "zai.glm-4.7-flash"   # fast + cheap for JSON planning
 
@@ -158,8 +158,7 @@ def _glm_plan(params, issues: list[str], vision_fix: dict) -> dict:
         raw = resp.choices[0].message.content.strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
+            raw = raw.removeprefix("json")
             raw = raw.strip()
 
         return json.loads(raw)

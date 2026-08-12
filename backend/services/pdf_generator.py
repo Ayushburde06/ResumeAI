@@ -1,284 +1,226 @@
 """
-pdf_generator.py — HTML → PDF using WeasyPrint.
+pdf_generator.py — HTML → PDF using WeasyPrint (pure Python, no Chromium).
 
 Architecture:
   1. Jinja2 renders resume dict → HTML string
-  2. ALL visible text (headers, titles, bullets, names, dates) is counted
-     to get an accurate density score — NOT just bullets/skills
-  3. Typography settings (font, line-height, spacing, header sizes, padding)
-     are derived from density and injected into <head>
-  4. Single WeasyPrint render → PDF bytes
+  2. WeasyPrint renders HTML → PDF bytes (~50MB RAM, pure Python)
+  3. Google Fonts fetched via url_fetcher for identical typography to Playwright
 
-One-page guarantee:
-  - Font scales from 11pt (sparse) down to 6.8pt (very dense)
-  - Body padding scales from 12mm down to 6mm
-  - Name heading scales from 20pt down to 14pt
-  - Section titles scale from 10pt down to 7.5pt
-  - page-break-inside is removed from .section via injection so
-    WeasyPrint never pushes a whole section to page 2
+Quality optimizations vs naive WeasyPrint:
+  - presentational_hints=True for better CSS compliance
+  - Custom url_fetcher caches Google Fonts CSS for fast repeated renders
+  - @page CSS with proper A4 margins
+  - Fallback font stack if Google Fonts unreachable
 """
-
+import logging
+import json
 from pathlib import Path
-from jinja2 import Environment, FileSystemLoader
+from types import SimpleNamespace
 
+from jinja2 import Environment, FileSystemLoader
+from weasyprint import HTML, CSS
+from weasyprint.text.fonts import FontConfiguration
+
+from services.layout_optimizer import (
+    apply_adjustments,
+    inspect_pdf,
+    needs_trim,
+    trim_content,
+)
 from services.resume_links import link_label, to_href
-from services.text_formatting import bold_list, extract_skills_flat, render_bold_markers
+from services.text_formatting import extract_skills_flat, render_bold_markers
+
+logger = logging.getLogger(__name__)
+
+
+def _dict_to_namespace(obj):
+    """Recursively convert dicts to SimpleNamespace so Jinja2 dot-access works."""
+    if isinstance(obj, dict):
+        return SimpleNamespace(**{k: _dict_to_namespace(v) for k, v in obj.items()})
+    elif isinstance(obj, list):
+        return [_dict_to_namespace(v) for v in obj]
+    return obj
+
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
-VALID_TEMPLATES = {"modern", "classic", "minimal"}
+VALID_TEMPLATES = {
+    "modern": "modern.html",
+    "classic": "classic.html",
+    # Public API compatibility: the frontend calls this layout "minimal".
+    "minimal": "minimalist.html",
+    "executive": "executive.html",
+    "split": "split.html",
+    "minimalist": "minimalist.html",
+}
 
 _jinja_env = Environment(
     loader=FileSystemLoader(str(TEMPLATES_DIR)),
     autoescape=True,
 )
-_jinja_env.filters["to_href"]    = to_href
+_jinja_env.filters["to_href"] = to_href
 _jinja_env.filters["link_label"] = link_label
-# NOTE: "bold" and "bold_list" filters are registered per-call inside generate_pdf
-# so they can be made context-aware (JD keywords + candidate skills).
 
 
-# ── Content density counter ───────────────────────────────────────────────────
+def _adaptive_layout(resume_data: dict) -> dict[str, float]:
+    """Calculate continuous typography and spacing from the content volume."""
+    serialized = json.dumps(resume_data, ensure_ascii=False)
+    bullet_count = 0
+    for section in ("experience", "projects"):
+        for entry in resume_data.get(section, []) or []:
+            bullets = entry.get("bullets", []) if isinstance(entry, dict) else []
+            if isinstance(bullets, list):
+                bullet_count += len([b for b in bullets if str(b).strip()])
+            elif isinstance(bullets, str):
+                bullet_count += len([b for b in bullets.splitlines() if b.strip()])
+            description = entry.get("description", "") if isinstance(entry, dict) else ""
+            bullet_count += len([b for b in str(description).splitlines() if b.strip()])
 
-def _count_resume_words(resume: dict) -> int:
-    """
-    Count ALL visible text tokens in the resume — not just bullets.
-    This includes:
-      - Personal info (name, phone, email, linkedin, github, location, website)
-      - Summary text and header
-      - Experience (company, title, location, dates, bullets) and header
-      - Projects (name, tech_stack, description) and header
-      - Skills (all categories and category labels) and header
-      - Education (institution, degree, gpa, honors, location, year) and header
-      - Certifications (name, issuer, year) and header
-    """
-    parts: list[str] = []
-
-    # Personal info
-    pi = resume.get("personal_info", {}) or {}
-    for field in ("name", "phone", "email", "linkedin", "github", "location", "website"):
-        val = pi.get(field)
-        if isinstance(val, str):
-            parts.append(val)
-
-    # Summary
-    summary = resume.get("summary")
-    if isinstance(summary, str) and summary.strip():
-        parts.append("Summary")
-        parts.append(summary)
-
-    # Experience — company, title, location, dates, bullets
-    exps = resume.get("experience", [])
-    if exps:
-        parts.append("Experience Work Experience")
-        for exp in exps:
-            if not isinstance(exp, dict):
-                continue
-            for field in ("company", "title", "location", "start_date", "end_date"):
-                val = exp.get(field)
-                if isinstance(val, str):
-                    parts.append(val)
-            for b in exp.get("bullets", []):
-                if isinstance(b, str):
-                    parts.append(b)
-
-    # Projects — name, tech_stack items, description
-    projs = resume.get("projects", [])
-    if projs:
-        parts.append("Projects")
-        for proj in projs:
-            if not isinstance(proj, dict):
-                continue
-            if isinstance(proj.get("name"), str):
-                parts.append(proj["name"])
-            ts = proj.get("tech_stack", [])
-            if isinstance(ts, list):
-                parts.extend(str(t) for t in ts if t)
-            desc = proj.get("description", "")
-            if isinstance(desc, str):
-                parts.append(desc)
-            elif isinstance(desc, list):
-                parts.extend(d for d in desc if isinstance(d, str))
-
-    # Skills
-    skills = resume.get("skills", {})
-    if isinstance(skills, dict) and any(skills.values()):
-        parts.append("Skills Technical Skills")
-        labels = {
-            "languages": "Languages",
-            "frameworks": "Frameworks Libraries",
-            "databases": "Databases",
-            "tools": "Tools Technologies",
-            "concepts": "Concepts",
-        }
-        for k, v in skills.items():
-            if isinstance(v, list) and v:
-                parts.append(labels.get(k, str(k)))
-                parts.extend(str(s) for s in v if s)
-
-    # Education
-    edus = resume.get("education", [])
-    if edus:
-        parts.append("Education")
-        for edu in edus:
-            if not isinstance(edu, dict):
-                continue
-            for field in ("institution", "degree", "gpa", "location", "graduation_year", "honors"):
-                val = edu.get(field)
-                if isinstance(val, str):
-                    parts.append(val)
-
-    # Certifications
-    certs = resume.get("certifications", [])
-    if certs:
-        parts.append("Certifications Extracurricular")
-        for cert in certs:
-            if not isinstance(cert, dict):
-                continue
-            for field in ("name", "issuer", "year"):
-                val = cert.get(field)
-                if isinstance(val, str):
-                    parts.append(str(val))
-
-    return len(" ".join(parts).split())
-
-
-# ── Typography scale ──────────────────────────────────────────────────────────
-
-def _choose_typography(word_count: int) -> dict:
-    """
-    Map resume word count (all visible text) to a full typography spec.
-
-    Returns:
-      font_size    (pt)  — body text size
-      line_height        — unitless multiplier
-      section_mb   (px)  — margin-bottom on .section
-      entry_mb     (px)  — margin-bottom on .entry
-      name_size    (pt)  — .name / .candidate-name heading size
-      subtitle_size(pt)  — .section-title size
-      body_padding (mm)  — body padding (all sides)
-      contact_mb   (px)  — margin-bottom on .contact-line
-      header_mb    (px)  — margin-bottom on .header div
-    """
-    # Each row: (max_words, font_size, line_height, section_mb, entry_mb,
-    #            name_size, subtitle_size, body_padding, contact_mb, header_mb)
-    table = [
-        (120,  11.0, 1.70, 18, 14, 22, 11.0, 13, 14, 10),
-        (160,  10.5, 1.60, 16, 12, 21, 10.5, 13, 12,  8),
-        (210,  10.0, 1.50, 14, 10, 20, 10.0, 12, 10,  7),
-        (270,   9.5, 1.44, 12,  8, 19,  9.5, 12,  8,  6),
-        (340,   9.0, 1.38, 10,  6, 18,  9.0, 11,  6,  5),
-        (420,   8.5, 1.32,  8,  5, 17,  8.8, 10,  4,  5),
-        (510,   8.2, 1.28,  7,  4, 16,  8.5, 10,  3,  4),
-        (600,   8.0, 1.24,  6,  3, 15,  8.2,  9,  2,  4),
-        (700,   7.7, 1.20,  5,  2, 14,  8.0,  8,  1,  3),
-        (820,   7.4, 1.18,  4,  2, 14,  7.8,  7,  1,  3),
-        (960,   7.1, 1.16,  3,  1, 13,  7.5,  7,  0,  2),
-        (9999,  6.8, 1.14,  2,  1, 12,  7.2,  6,  0,  2),
-    ]
-    for (max_w, fs, lh, smb, emb, ns, ss, bp, cmb, hmb) in table:
-        if word_count <= max_w:
-            return dict(
-                font_size=fs,
-                line_height=lh,
-                section_mb=smb,
-                entry_mb=emb,
-                name_size=ns,
-                subtitle_size=ss,
-                body_padding=bp,
-                contact_mb=cmb,
-                header_mb=hmb,
-            )
-    # Fallback (should never reach here due to 9999 sentinel)
-    return dict(
-        font_size=6.8, line_height=1.14, section_mb=2, entry_mb=1,
-        name_size=12, subtitle_size=7.2, body_padding=6, contact_mb=0, header_mb=2,
+    section_count = sum(
+        1 for key in ("summary", "experience", "projects", "skills", "education", "certifications")
+        if resume_data.get(key)
     )
+    content_units = len(serialized) / 85 + bullet_count * 0.7 + section_count * 2
+    overflow_pressure = max(0.0, content_units - 35.0)
+    font_size = max(7.75, min(9.45, 9.45 - overflow_pressure * 0.017))
+    line_height = max(1.20, min(1.46, 1.46 - overflow_pressure * 0.0026))
+    section_gap = max(4.0, min(10.0, 10.0 - overflow_pressure * 0.085))
+    entry_gap = max(2.0, min(7.0, 7.0 - overflow_pressure * 0.07))
+    title_gap = max(3.0, min(7.0, 7.0 - overflow_pressure * 0.06))
+    return {
+        "font_size": round(font_size, 2),
+        "line_height": round(line_height, 3),
+        "section_gap": round(section_gap, 2),
+        "entry_gap": round(entry_gap, 2),
+        "title_gap": round(title_gap, 2),
+    }
 
+# ── Font fetching: cache Google Fonts CSS to avoid repeated network calls ─────
 
-# ── Typography injection ──────────────────────────────────────────────────────
+_gf_cache: dict[str, dict] = {}
 
-def _inject_typography(html: str, t: dict) -> str:
+def _url_fetcher(url, timeout=10, ssl_context=None):
+    """Custom URL fetcher that caches Google Fonts responses.
+    Returns dict with 'string' and 'mime_type' keys as WeasyPrint expects.
+    Font files (woff2, ttf, otf) must be returned as bytes, CSS as string.
     """
-    Inject a comprehensive typography override block into <head>.
-    Overrides body text, spacing, name heading, section titles, padding,
-    and removes page-break-inside from .section so WeasyPrint never
-    pushes an entire section to page 2.
-    """
-    override = (
-        "<style>\n"
-        # Body: font, line-height, padding
-        f"  body         {{ font-size: {t['font_size']}pt !important; "
-        f"line-height: {t['line_height']} !important; "
-        f"padding: {t['body_padding']}mm {t['body_padding']}mm !important; }}\n"
-        # Minimal template layout padding
-        f"  .sidebar     {{ padding: {t['body_padding']}mm 8mm {t['body_padding']}mm 10mm !important; }}\n"
-        f"  .main        {{ padding: {t['body_padding']}mm 10mm {t['body_padding']}mm 8mm !important; }}\n"
-        # Section spacing — allow natural page flow for sections but prevent entry slicing
-        f"  .section, .s-section {{ margin-bottom: {t['section_mb']}px !important; "
-        f"page-break-inside: auto !important; }}\n"
-        f"  .entry, .job, .project {{ margin-bottom: {t['entry_mb']}px !important; "
-        f"page-break-inside: avoid !important; }}\n"
-        # Section title spacing
-        f"  .section-title, .s-section-title {{ margin-top: {t['section_mb']}px !important; "
-        f"font-size: {t['subtitle_size']}pt !important; }}\n"
-        # Name / heading
-        f"  .name, .candidate-name {{ font-size: {t['name_size']}pt !important; }}\n"
-        # Contact line margin
-        f"  .contact-line {{ margin-bottom: {t['contact_mb']}px !important; }}\n"
-        # Header block bottom margin
-        f"  .header      {{ margin-bottom: {t['header_mb']}px !important; }}\n"
-        "</style>\n"
-    )
-    if "</head>" in html:
-        return html.replace("</head>", override + "</head>", 1)
-    return override + html
-
-
-# ── WeasyPrint render ─────────────────────────────────────────────────────────
-
-def render_html_to_pdf(html_content: str) -> bytes:
-    """
-    Render an HTML string to PDF bytes using WeasyPrint.
-    """
+    if url in _gf_cache:
+        return _gf_cache[url]
+    import httpx
     try:
-        import weasyprint
-    except ImportError as e:
-        raise RuntimeError(
-            "WeasyPrint is not installed. Run: pip install weasyprint"
-        ) from e
+        r = httpx.get(url, timeout=timeout, follow_redirects=True)
+        if r.status_code == 200:
+            mime = r.headers.get('content-type', 'text/css')
+            # Font files: WeasyPrint passes content to write_bytes() → must be bytes
+            if any(ft in mime for ft in ('font/', 'octet-stream')):
+                result = {'string': r.content, 'mime_type': mime}
+            else:
+                result = {'string': r.text, 'mime_type': mime}
+            _gf_cache[url] = result
+            return result
+    except Exception:
+        pass
+    return {'string': '', 'mime_type': 'text/css'}
 
-    pdf_bytes = weasyprint.HTML(string=html_content).write_pdf()
+# ── Base CSS: ensures consistent rendering across all templates ───────────────
+# This replaces the @import url('https://fonts.googleapis.com/...') in templates
+# with a local font stack that looks identical.
 
-    if not pdf_bytes or not pdf_bytes.startswith(b"%PDF"):
-        raise RuntimeError("WeasyPrint did not return valid PDF bytes.")
+_BASE_CSS = """
+@page {
+    size: A4;
+    margin: 0;
+}
 
-    return pdf_bytes
+/* Use system fonts that match Inter's metrics closely */
+body {
+    font-family: 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* Continuous layout variables are calculated per resume. */
+body {
+    font-size: var(--resume-font-size, 8.5pt) !important;
+    line-height: var(--resume-line-height, 1.35) !important;
+}
+.section { margin-bottom: var(--resume-section-gap, 8px) !important; }
+.entry { margin-bottom: var(--resume-entry-gap, 6px) !important; }
+.section-title {
+    margin-bottom: var(--resume-title-gap, 6px) !important;
+    margin-top: var(--resume-title-gap, 6px) !important;
+}
+.bullets li { margin-bottom: var(--resume-bullet-gap, 1px) !important; }
+.summary,
+.section > div[style*="font-size"] {
+    font-size: var(--resume-font-size, 8.5pt) !important;
+    line-height: var(--resume-line-height, 1.35) !important;
+}
+
+/* Ensure proper page breaks */
+.entry, .section {
+    page-break-inside: avoid;
+}
+
+/* WeasyPrint flexbox gap workaround — use margins instead */
+.contact-line {
+    gap: 0 !important;
+}
+.contact-item {
+    margin-right: 14px;
+}
+.contact-item:last-child {
+    margin-right: 0;
+}
+.project-links {
+    gap: 0 !important;
+}
+.project-link-btn {
+    margin-right: 10px;
+}
+.project-link-btn:last-child {
+    margin-right: 0;
+}
+"""
+
+
+def _build_style_string(layout: dict) -> str:
+    """Build CSS custom-property string from a layout dict."""
+    return (
+        f'--resume-font-size:{layout["font_size"]}pt; '
+        f'--resume-line-height:{layout["line_height"]}; '
+        f'--resume-section-gap:{layout["section_gap"]}px; '
+        f'--resume-entry-gap:{layout["entry_gap"]}px; '
+        f'--resume-title-gap:{layout["title_gap"]}px; '
+        f'--resume-bullet-gap:{max(0.0, layout["entry_gap"] - 4.0):.2f}px;'
+    )
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def generate_pdf(
+async def generate_pdf(
     resume_data: dict,
     template_name: str = "modern",
     jd_keywords: list[str] | None = None,
 ) -> bytes:
     """
-    Generate a PDF from resume data and a named template.
+    Generate a PDF from resume data and a named template using WeasyPrint.
+
+    Uses a 3-layer layout system:
+      L1 (pre-render):  Trim content if too dense (cap bullets, drop excess entries)
+      L2 (render):      Adaptive layout — estimate spacing from content volume
+      L3 (post-render): Inspect actual PDF with PyMuPDF, adjust spacing, re-render
+                        (max 3 iterations until page fill is optimal)
 
     Args:
         resume_data:   Full resume dict.
-        template_name: One of 'modern', 'classic', 'minimal'.
+        template_name: One of 'modern', 'classic', 'executive', 'split'.
         jd_keywords:   Optional list of JD-required keywords.
-                       When provided, matching terms in bullets are bolded
-                       with highest priority (Layer 1 of bolding engine).
+                       When provided, matching terms in bullets are bolded.
     """
     if template_name not in VALID_TEMPLATES:
         raise ValueError(
-            f"Unknown template '{template_name}'. Choose from: {VALID_TEMPLATES}"
+            f"Unknown template '{template_name}'. Choose from: {list(VALID_TEMPLATES)}"
         )
 
     # ── Build context-aware bold filter ─────────────────────────────────────
-    # Flatten candidate's own skills list for Layer 3 (tech stack) bolding.
     resume_skills = extract_skills_flat(resume_data.get("skills", {}))
 
     def _bold_filter(text: str) -> object:
@@ -294,17 +236,88 @@ def generate_pdf(
 
     # Clone env so the global env is never mutated between concurrent requests.
     env = _jinja_env.overlay()
-    env.filters["bold"]      = _bold_filter
+    env.filters["bold"] = _bold_filter
     env.filters["bold_list"] = _bold_list_filter
 
-    template = env.get_template(f"{template_name}.html")
-    html = template.render(resume=resume_data)
+    # ── L1: Pre-render content trimming ─────────────────────────────────────
+    # If the agent generated too many bullets/entries, trim before rendering
+    # so the font doesn't have to shrink to an unreadable size.
+    if needs_trim(resume_data):
+        logger.info("L1: Content too dense — trimming bullets and entries")
+        resume_data = trim_content(resume_data)
 
-    word_count = _count_resume_words(resume_data)
-    typography = _choose_typography(word_count)
-    html       = _inject_typography(html, typography)
+    # ── Render HTML once (content doesn't change between correction iterations)
+    template = env.get_template(VALID_TEMPLATES[template_name])
+    base_html = template.render(resume=_dict_to_namespace(resume_data))
 
-    try:
-        return render_html_to_pdf(html)
-    except Exception as e:
-        raise RuntimeError(f"PDF generation failed: {e}") from e
+    # ── L2: Initial adaptive layout estimate ────────────────────────────────
+    layout = _adaptive_layout(resume_data)
+
+    # ── L3: Render → Inspect → Adjust → Re-render loop ──────────────────────
+    # Render the PDF, inspect actual page fill with PyMuPDF, and adjust
+    # spacing if content overflows or has too much empty space.
+    # Max 3 iterations — each adds ~100ms (inspect + re-render).
+    MAX_CORRECTIONS = 3
+    pdf_bytes = None
+
+    for iteration in range(MAX_CORRECTIONS):
+        style = _build_style_string(layout)
+        html = base_html.replace("<body>", f'<body style="{style}">', 1)
+
+        try:
+            doc = HTML(string=html, url_fetcher=_url_fetcher)
+            pdf_bytes = doc.write_pdf(
+                stylesheets=[CSS(string=_BASE_CSS, url_fetcher=_url_fetcher)],
+                presentational_hints=True,
+            )
+        except Exception as e:
+            logger.error(f"PDF generation failed: {e}")
+            raise RuntimeError(f"PDF generation failed: {e}") from e
+
+        # Inspect the rendered PDF
+        verdict = inspect_pdf(pdf_bytes)
+
+        logger.info(
+            f"Layout L3 iter {iteration + 1}/{MAX_CORRECTIONS}: "
+            f"pages={verdict['page_count']} issues={verdict['issues']} "
+            f"fill={verdict['fill_ratios']}"
+        )
+
+        # No issues → layout is optimal
+        if not verdict["issues"]:
+            break
+
+        # Last iteration → return best effort
+        if iteration == MAX_CORRECTIONS - 1:
+            logger.warning(
+                f"Layout L3: issues remain after {MAX_CORRECTIONS} iterations: "
+                f"{verdict['issues']}"
+            )
+            break
+
+        # Apply spacing adjustments for next iteration
+        layout = apply_adjustments(layout, verdict["adjustments"])
+
+    return pdf_bytes
+
+
+# ── BrowserManager stub for backward compatibility ────────────────────────────
+# (main.py startup checks for this — no-op since WeasyPrint has no browser)
+
+class BrowserManager:
+    """No-op stub for browser, but repurposed to warm the WeasyPrint font cache."""
+    _loop = None
+
+    @classmethod
+    async def warm(cls):
+        # Pre-fetch the common Google Fonts to avoid blocking the first PDF generation
+        font_url = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+        logger.info("Warming WeasyPrint font cache...")
+        import asyncio
+        # Run synchronous fetch in a thread so we don't block the async event loop during startup
+        await asyncio.to_thread(_url_fetcher, font_url)
+        logger.info("WeasyPrint font cache warmed.")
+
+    @classmethod
+    async def close_all(cls):
+        pass

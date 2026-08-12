@@ -1,37 +1,66 @@
 import asyncio
 import io
 import json
+import logging
+import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Request
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
+logger = logging.getLogger(__name__)
 
 from database import get_db
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import StreamingResponse
 from limiter import limiter
 from models.history import ResumeHistory
-from models.stats import UserStats, FREE_LIMIT
+from models.stats import FREE_DAILY_LIMIT
 from models.user import User
-from routers.auth import require_user, get_current_user, ADMIN_EMAILS
-from services.parser import parse_resume
+from pydantic import BaseModel
+from quota import check_user_quota, log_user_operation
 from services.ai_service import (
     analyse_job_description,
-    rewrite_resume,
-    generate_cover_letter,
     generate_application_email,
-    improve_resume_for_ats,
+    generate_cover_letter,
     get_available_models,
+    improve_resume_for_ats,
+    rewrite_resume,
     suggest_job_search_params,
 )
 from services.ats_engine import compute_ats_score
 from services.humanization_engine import compute_humanization_score
-from services.quality_checks import assess_resume_quality
+from services.latex_generator import generate_latex, generate_pdf_from_latex
+from services.parser import parse_resume
 from services.pdf_generator import generate_pdf
-from services.latex_generator import generate_latex
+from services.quality_checks import assess_resume_quality
+from sqlalchemy.orm import Session
+
+from routers.auth import ADMIN_EMAILS, get_current_user, require_user
 
 router = APIRouter()
+
+TEMPLATE_REGISTRY = {
+    "harshibar": {
+        "engine": "latex",
+        "template": "harshibar.tex.jinja",
+        "category": "software_engineering",
+        "supports_preview": False,
+    },
+    "modern": {
+        "engine": "playwright",
+        "template": "modern.html",
+        "default": True,
+        "supports_preview": True,
+    },
+    "classic": {
+        "engine": "playwright",
+        "template": "classic.html",
+        "supports_preview": True,
+    },
+    "minimal": {
+        "engine": "playwright",
+        "template": "minimalist.html",
+        "supports_preview": True,
+    },
+}
 
 
 class AnalyzeResponse(BaseModel):
@@ -51,7 +80,7 @@ class AnalyzeResponse(BaseModel):
     model_used: str = ""
     # Usage info (only populated for logged-in users)
     analyses_used: int = 0
-    analyses_limit: int = FREE_LIMIT
+    analyses_limit: int = FREE_DAILY_LIMIT
     is_premium: bool = False
 
 class SuggestJobSearchResponse(BaseModel):
@@ -62,22 +91,6 @@ class ExportRequest(BaseModel):
     resume: dict
     template: str = "modern"
     jd_keywords: list[str] = []
-
-
-class ImproveATSRequest(BaseModel):
-    tailored_resume: dict
-    job_description: str
-    job_analysis: dict
-    missing_keywords: list[str]
-    model: str | None = None
-
-
-class ImproveATSResponse(BaseModel):
-    tailored_resume: dict
-    ats_score: int
-    matched_keywords: list[str]
-    missing_keywords: list[str]
-    total_keywords: int
 
 
 class RescoreATSRequest(BaseModel):
@@ -105,13 +118,13 @@ def _safe_pdf_filename(resume: dict, template: str) -> str:
 
 
 @router.get("/models", response_model=list[ModelInfo])
-async def list_models(current_user: Optional[User] = Depends(get_current_user)):
+async def list_models(current_user: User | None = Depends(get_current_user)):
     """Return available AI models. Admin users also see admin-only models."""
     is_admin = bool(current_user and current_user.email.lower() in ADMIN_EMAILS)
     return get_available_models(is_admin=is_admin)
 
 
-def _validate_model_id(model_id: Optional[str], is_admin: bool = False) -> Optional[str]:
+def _validate_model_id(model_id: str | None, is_admin: bool = False) -> str | None:
     """Return model_id only if it is a known (and permitted) model; else None (use default)."""
     if not model_id:
         return None
@@ -119,74 +132,35 @@ def _validate_model_id(model_id: Optional[str], is_admin: bool = False) -> Optio
     return model_id if model_id in allowed else None
 
 
-@router.post("/analyze", response_model=AnalyzeResponse)
-@limiter.limit("5/minute")   # AI call costs real money — tight per-IP limit
-async def analyze(
-    request: Request,
-    resume_file: UploadFile = File(..., description="Resume file — PDF or DOCX"),
-    job_description: str = Form(..., description="Full text of the job description"),
-    model: str = Form(default="", description="Model ID to use (e.g. qwen, glm, deepseek)"),
-    current_user: User = Depends(require_user),   # login required
-    db: Session = Depends(get_db),
-):
-    if not resume_file.filename:
-        raise HTTPException(status_code=400, detail="No file provided.")
-
-    # ── Usage limit check ───────────────────────────────────────────────────
-    stats: Optional[UserStats] = db.query(UserStats).filter(UserStats.user_id == current_user.id).first()
-    if not stats:
-        stats = UserStats(user_id=current_user.id, analysis_count=0, is_premium=False)
-        db.add(stats)
-        db.commit()
-        db.refresh(stats)
-
-    if not stats.is_premium and stats.analysis_count >= FREE_LIMIT:
-        raise HTTPException(
-            status_code=402,
-            detail=f"You've used all {FREE_LIMIT} free resume tailorings. Upgrade to Premium for unlimited access.",
-        )
-
-    file_bytes = await resume_file.read()
-    if len(file_bytes) == 0:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
-    if len(file_bytes) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="File too large. Maximum size is 10 MB.")
-    if len(job_description.strip()) < 50:
-        raise HTTPException(status_code=400, detail="Job description is too short. Please paste the full JD.")
-    if len(job_description) > 20_000:
-        raise HTTPException(status_code=400, detail="Job description is too long (max 20,000 characters).")
-
+def _run_analyze_pipeline(
+    filename: str,
+    file_bytes: bytes,
+    content_type: str | None,
+    job_description: str,
+    model_id: str | None,
+) -> dict:
+    """Blocking parse + AI + scoring work — safe to run in a worker thread."""
     try:
-        resume_text = parse_resume(resume_file.filename, file_bytes, resume_file.content_type)
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to parse the resume file.")
+        resume_text = parse_resume(filename, file_bytes, content_type)
+    except ValueError:
+        raise
+    except Exception as e:
+        raise RuntimeError("parse_failed") from e
 
     if not resume_text.strip():
-        raise HTTPException(
-            status_code=422,
-            detail="Could not extract text from the resume. Ensure it is not scanned/image-only.",
-        )
+        raise RuntimeError("empty_resume")
 
-    is_admin = current_user.email.lower() in ADMIN_EMAILS
-    model_id = _validate_model_id(model.strip() or None, is_admin=is_admin)
-
-    # ── Step 1: Sequential AI calls (each depends on the previous) ─────────────
     try:
         job_analysis = analyse_job_description(job_description, model_id=model_id)
         tailored_resume = rewrite_resume(resume_text, job_description, job_analysis, model_id=model_id)
-    except Exception:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=502, detail="AI service is temporarily unavailable. Please try again.")
+    except Exception as e:
+        raise RuntimeError("ai_unavailable") from e
 
     tailored_text = json.dumps(tailored_resume)
     original_ats = compute_ats_score(tailored_text, job_description)
     ats = original_ats
-
-    # ── Step 2: Parallel AI calls — cover letter + email + optional ATS boost ────────
     auto_improved = False
+
     try:
         needs_improve = ats.score < 90 and bool(ats.missing_keywords)
 
@@ -230,12 +204,9 @@ async def analyze(
                 )
                 cover_letter = cover_future.result()
                 application_email = email_future.result()
-    except Exception:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=502, detail="AI service is temporarily unavailable. Please try again.")
+    except Exception as e:
+        raise RuntimeError("ai_unavailable") from e
 
-    final_ats = ats
     quality_report = assess_resume_quality(
         tailored_resume,
         job_description,
@@ -246,46 +217,127 @@ async def analyze(
             "missing_count": len(original_ats.missing_keywords),
         },
         {
-            "score": final_ats.score,
-            "matched": len(final_ats.matched_keywords),
-            "total": final_ats.total_keywords,
-            "missing_count": len(final_ats.missing_keywords),
+            "score": ats.score,
+            "matched": len(ats.matched_keywords),
+            "total": ats.total_keywords,
+            "missing_count": len(ats.missing_keywords),
         },
     )
-
     human_result = compute_humanization_score(tailored_resume)
 
-    # ── Post-analysis: increment count + auto-save history ──────────────────
-    analyses_used = 0
-    is_premium = False
-    if stats:
-        stats.analysis_count += 1
-        db.commit()
-        db.refresh(stats)
-        analyses_used = stats.analysis_count
-        is_premium = stats.is_premium
+    return {
+        "tailored_resume": tailored_resume,
+        "ats": ats,
+        "original_ats": original_ats,
+        "cover_letter": cover_letter,
+        "application_email": application_email,
+        "job_analysis": job_analysis,
+        "quality_report": quality_report,
+        "human_result": human_result,
+        "auto_improved": auto_improved,
+    }
 
-        # Auto-save to history (including keyword metadata)
+
+@router.post("/analyze", response_model=AnalyzeResponse)
+@limiter.limit("3/minute")   # burst limit — daily quota is the real guard
+async def analyze(
+    request: Request,
+    resume_file: UploadFile = File(..., description="Resume file — PDF or DOCX"),
+    job_description: str = Form(..., description="Full text of the job description"),
+    model: str = Form(default="", description="Model ID to use (e.g. nvidia, gemini, glm, qwen, deepseek)"),
+    current_user: User = Depends(require_user),   # login required
+    db: Session = Depends(get_db),
+):
+    raise HTTPException(
+        status_code=410,
+        detail="Direct resume analysis is disabled. Use the agentic /agent-analyze endpoint.",
+    )
+
+    if not resume_file.filename:
+        raise HTTPException(status_code=400, detail="No file provided.")
+
+    # ── Daily quota check (lifetime 3 for free, rolling 24h for premium) ─────
+    stats, rolling_used = check_user_quota(db, current_user, operation="analyze")
+
+    file_bytes = await resume_file.read()
+    if len(file_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    if len(file_bytes) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 10 MB.")
+    if len(job_description.strip()) < 50:
+        raise HTTPException(status_code=400, detail="Job description is too short. Please paste the full JD.")
+    if len(job_description) > 20_000:
+        raise HTTPException(status_code=400, detail="Job description is too long (max 20,000 characters).")
+
+    is_admin = current_user.email.lower() in ADMIN_EMAILS
+    model_id = _validate_model_id(model.strip() or None, is_admin=is_admin)
+
+    # Run parse + AI + scoring off the event loop so other requests stay responsive
+    from concurrency import ai_semaphore
+    async with ai_semaphore:
         try:
-            job_title = job_analysis.get("job_title", "") if job_analysis else ""
-            entry = ResumeHistory(
-                user_id=current_user.id,
-                job_title=job_title,
-                ats_score=ats.score,
-                tailored_resume=tailored_resume,
-                cover_letter=cover_letter,
-                application_email=application_email,
-                job_analysis=job_analysis,
-                quality_report=quality_report,
-                job_description=job_description,
-                matched_keywords=ats.matched_keywords,
-                missing_keywords=ats.missing_keywords,
-                total_keywords=ats.total_keywords,
+            pipeline = await asyncio.to_thread(
+                _run_analyze_pipeline,
+                resume_file.filename,
+                file_bytes,
+                resume_file.content_type,
+                job_description,
+                model_id,
             )
-            db.add(entry)
-            db.commit()
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        except RuntimeError as e:
+            if str(e) == "parse_failed":
+                raise HTTPException(status_code=500, detail="Failed to parse the resume file.")
+            if str(e) == "empty_resume":
+                raise HTTPException(
+                    status_code=422,
+                    detail="Could not extract text from the resume. Ensure it is not scanned/image-only.",
+                )
+            if str(e) == "ai_unavailable":
+                raise HTTPException(status_code=502, detail="AI service is temporarily unavailable. Please try again.")
+            raise
         except Exception:
-            pass  # Never block the response due to a save failure
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=502, detail="AI service is temporarily unavailable. Please try again.")
+
+    tailored_resume = pipeline["tailored_resume"]
+    ats = pipeline["ats"]
+    cover_letter = pipeline["cover_letter"]
+    application_email = pipeline["application_email"]
+    job_analysis = pipeline["job_analysis"]
+    quality_report = pipeline["quality_report"]
+    human_result = pipeline["human_result"]
+    auto_improved = pipeline["auto_improved"]
+    final_ats = ats
+
+    # ── Post-analysis: log usage + auto-save history ────────────────────────
+    log_user_operation(db, current_user, operation="analyze")
+    analyses_used = rolling_used + 1  # rolling 24h count including this call
+    is_premium = stats.is_premium
+
+    # Auto-save to history (including keyword metadata)
+    try:
+        job_title = job_analysis.get("job_title", "") if job_analysis else ""
+        entry = ResumeHistory(
+            user_id=current_user.id,
+            job_title=job_title,
+            ats_score=ats.score,
+            tailored_resume=tailored_resume,
+            cover_letter=cover_letter,
+            application_email=application_email,
+            job_analysis=job_analysis,
+            quality_report=quality_report,
+            job_description=job_description,
+            matched_keywords=ats.matched_keywords,
+            missing_keywords=ats.missing_keywords,
+            total_keywords=ats.total_keywords,
+        )
+        db.add(entry)
+        db.commit()
+    except Exception:
+        pass  # Never block the response due to a save failure
 
     return AnalyzeResponse(
         tailored_resume=tailored_resume,
@@ -307,7 +359,7 @@ async def analyze(
         auto_improved=auto_improved,
         model_used=model_id or "",
         analyses_used=analyses_used,
-        analyses_limit=FREE_LIMIT,
+        analyses_limit=FREE_DAILY_LIMIT,
         is_premium=is_premium,
     )
 
@@ -317,8 +369,9 @@ async def analyze(
 async def suggest_job_search(
     request: Request,
     resume_file: UploadFile = File(..., description="Resume file — PDF or DOCX"),
-    model: str = Form(default="", description="Model ID to use (e.g. qwen, glm, deepseek)"),
-    _user: User = Depends(require_user),
+    model: str = Form(default="", description="Model ID to use (e.g. nvidia, gemini, glm, qwen, deepseek)"),
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db),
 ):
     if not resume_file.filename:
         raise HTTPException(status_code=400, detail="No file provided.")
@@ -330,7 +383,9 @@ async def suggest_job_search(
         raise HTTPException(status_code=413, detail="File too large. Maximum size is 10 MB.")
 
     try:
-        resume_text = parse_resume(resume_file.filename, file_bytes, resume_file.content_type)
+        resume_text = await asyncio.to_thread(
+            parse_resume, resume_file.filename, file_bytes, resume_file.content_type
+        )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception:
@@ -341,14 +396,21 @@ async def suggest_job_search(
 
     model_id = _validate_model_id(model.strip() or None)
 
-    try:
-        suggestion = suggest_job_search_params(resume_text, model_id=model_id)
-        return SuggestJobSearchResponse(
-            search_term=suggestion.get("search_term", ""),
-            location=suggestion.get("location", "")
-        )
-    except Exception:
-        raise HTTPException(status_code=502, detail="AI service is temporarily unavailable.")
+    check_user_quota(db, current_user, operation="analyze")
+
+    from concurrency import ai_semaphore
+    async with ai_semaphore:
+        try:
+            suggestion = await asyncio.to_thread(
+                suggest_job_search_params, resume_text, model_id=model_id
+            )
+            log_user_operation(db, current_user, operation="analyze")
+            return SuggestJobSearchResponse(
+                search_term=suggestion.get("search_term", ""),
+                location=suggestion.get("location", "")
+            )
+        except Exception:
+            raise HTTPException(status_code=502, detail="AI service is temporarily unavailable.")
 
 
 @router.post("/export-pdf")
@@ -358,24 +420,48 @@ async def export_pdf(
     body: ExportRequest,
     _user: User = Depends(require_user),
 ):
+    template = body.template
+    if template not in TEMPLATE_REGISTRY:
+        raise HTTPException(status_code=400, detail=f"Unknown template '{template}'.")
+
+    engine = TEMPLATE_REGISTRY[template]["engine"]
+
     try:
-        # WeasyPrint is CPU-bound and synchronous; run_in_executor keeps the
-        # FastAPI event loop free while the PDF renders (~0.5-2s).
-        loop = asyncio.get_running_loop()
-        import functools
-        pdf_fn = functools.partial(
-            generate_pdf,
-            body.resume,
-            body.template,
-            body.jd_keywords or None,
-        )
-        pdf_bytes = await loop.run_in_executor(None, pdf_fn)
+        if engine == "playwright":
+            from concurrency import pdf_semaphore
+            async with pdf_semaphore:
+                pdf_bytes = await generate_pdf(
+                    body.resume,
+                    template_name=template,
+                    jd_keywords=body.jd_keywords or None,
+                )
+        elif engine == "latex":
+            from concurrency import latex_semaphore
+            async with latex_semaphore:
+                pdf_bytes = await generate_pdf_from_latex(
+                    body.resume,
+                    template_name=template,
+                )
+        else:
+            raise ValueError(f"Unknown engine '{engine}' for template '{template}'.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception:
+    except RuntimeError as e:
+        if str(e) == "latex_runtime_missing":
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "latex_runtime_missing",
+                    "message": "The selected template requires a LaTeX runtime that is not installed on this server."
+                }
+            )
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail="PDF generation failed. Please try again.")
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {e!s}")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {e!s}")
 
     filename = _safe_pdf_filename(body.resume, body.template)
     return StreamingResponse(
@@ -406,41 +492,6 @@ async def export_latex(
         io.BytesIO(tex_content.encode("utf-8")),
         media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
-@router.post("/improve-ats", response_model=ImproveATSResponse)
-@limiter.limit("20/minute")
-async def improve_ats(
-    request: Request,
-    body: ImproveATSRequest,
-    _user: User = Depends(require_user),
-):
-    if len(body.job_description.strip()) < 50:
-        raise HTTPException(status_code=400, detail="Job description is too short.")
-
-    model_id = _validate_model_id(body.model.strip() if body.model else None)
-
-    try:
-        tailored_resume = improve_resume_for_ats(
-            body.tailored_resume,
-            body.job_description,
-            body.job_analysis,
-            body.missing_keywords,
-            model_id=model_id,
-        )
-    except Exception:
-        raise HTTPException(status_code=502, detail="AI service is temporarily unavailable.")
-
-    tailored_text = json.dumps(tailored_resume)
-    ats = compute_ats_score(tailored_text, body.job_description)
-
-    return ImproveATSResponse(
-        tailored_resume=tailored_resume,
-        ats_score=ats.score,
-        matched_keywords=ats.matched_keywords,
-        missing_keywords=ats.missing_keywords,
-        total_keywords=ats.total_keywords,
     )
 
 

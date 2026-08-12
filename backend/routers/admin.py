@@ -7,16 +7,16 @@ GET  /api/admin/learning/stats    aggregate stats by job_title + section
 DELETE /api/admin/learning/{id}   remove a bad example
 """
 import json
-from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
-from sqlalchemy import func
 
 from database import get_db
-from models.learning import LearningExample, DeltaPattern
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
+from models.learning import DeltaPattern, LearningExample
 from models.user import User
-from routers.auth import require_user, ADMIN_EMAILS
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from routers.auth import ADMIN_EMAILS, require_user
 
 router = APIRouter()
 
@@ -31,8 +31,8 @@ def _require_admin(current_user: User = Depends(require_user)) -> User:
 def list_learning_examples(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
-    job_title: Optional[str] = Query(None),
-    section_type: Optional[str] = Query(None),
+    job_title: str | None = Query(None),
+    section_type: str | None = Query(None),
     min_score: int = Query(0),
     approved_only: bool = Query(False),
     _admin: User = Depends(_require_admin),
@@ -47,7 +47,7 @@ def list_learning_examples(
     if min_score > 0:
         q = q.filter(LearningExample.ats_score >= min_score)
     if approved_only:
-        q = q.filter(LearningExample.user_approved == True)  # noqa: E712
+        q = q.filter(LearningExample.user_approved == True)
 
     total = q.count()
     rows = (
@@ -90,7 +90,7 @@ def export_learning_examples(
         db.query(LearningExample)
         .filter(
             LearningExample.ats_score >= min_score,
-            LearningExample.user_approved != False,  # noqa: E712
+            LearningExample.user_approved != False,
         )
         .order_by(LearningExample.ats_score.desc())
         .all()
@@ -149,8 +149,8 @@ def learning_stats(
         .all()
     )
     total = db.query(func.count(LearningExample.id)).scalar()
-    approved = db.query(func.count(LearningExample.id)).filter(LearningExample.user_approved == True).scalar()  # noqa: E712
-    rejected = db.query(func.count(LearningExample.id)).filter(LearningExample.user_approved == False).scalar()  # noqa: E712
+    approved = db.query(func.count(LearningExample.id)).filter(LearningExample.user_approved == True).scalar()
+    rejected = db.query(func.count(LearningExample.id)).filter(LearningExample.user_approved == False).scalar()
 
     return {
         "total_examples": total,

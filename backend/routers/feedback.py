@@ -8,17 +8,16 @@ This marks the linked learning_examples rows with user_approved=True/False.
 Results with user_approved=False are DOWN-weighted in future RAG retrieval.
 Results with user_approved=True are UP-weighted (returned first).
 """
-from fastapi import APIRouter, Depends, HTTPException
+from database import get_db
+from fastapi import APIRouter, Depends, HTTPException, Request
+from limiter import limiter
+from models.history import ResumeHistory
+from models.learning import LearningExample
+from models.user import User
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
-from database import get_db
-from models.learning import LearningExample
-from models.history import ResumeHistory
 from routers.auth import require_user
-from models.user import User
-from limiter import limiter
-from fastapi import Request
 
 router = APIRouter()
 

@@ -30,6 +30,7 @@ frontend/.vite/
 Thumbs.db
 .idea/
 .vscode/
+.cursor/mcp.json
 *.swp
 *.pdf
 *.docx
@@ -37,3 +38,11 @@ Thumbs.db
 # Local-only design reference
 BRAIN.md
 
+
+# -- Test & Temporary Artifacts -----------------------------------------------
+tmp/
+.pytest_cache/
+*.log
+resume_builder/output/
+.cursor/
+.trae/

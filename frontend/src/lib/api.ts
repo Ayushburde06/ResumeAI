@@ -1,6 +1,9 @@
 import axios, { isAxiosError } from 'axios'
+import { StableStream } from './StableStream'
 import type {
   AnalyzeResponse,
+  ProfileResponse,
+  CareerProfile,
   AuthResponse,
   HistoryEntry,
   HistoryListItem,
@@ -270,7 +273,7 @@ export async function suggestJobSearch(
 
 export async function exportPdf(
   resume: TailoredResume,
-  template: 'modern' | 'classic' | 'minimal' = 'modern',
+  template: string = 'modern',
   jdKeywords?: string[]
 ): Promise<void> {
   let response
@@ -515,83 +518,167 @@ export function agentAnalyze(
   onComplete: (result: AgentAnalyzeResult) => void,
   onError: (message: string) => void,
 ): () => void {
-  /**
-   * Opens a streaming POST request (XHR with streaming) to /api/agent-analyze.
-   * Parses SSE `data:` lines in real-time and calls the appropriate callbacks.
-   * Returns a cleanup function that aborts the request.
-   *
-   * We use XHR instead of EventSource because EventSource doesn't support
-   * POST requests or custom headers (needed for Bearer token auth).
-   */
   const token = localStorage.getItem('auth_token') ?? ''
   const form = new FormData()
   form.append('resume_file', resumeFile)
   form.append('job_description', jobDescription)
   if (modelId) form.append('model', modelId)
 
-  const xhr = new XMLHttpRequest()
-  xhr.open('POST', `${BASE}/agent-analyze`, true)
-  xhr.setRequestHeader('Authorization', `Bearer ${token}`)
-  xhr.setRequestHeader('Accept', 'text/event-stream')
+  let streamStarted = false
 
-  let sseBuffer = ''
-  let lastResponseLength = 0
+  const stream = new StableStream(
+    `${BASE}/agent-analyze`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'text/event-stream'
+      },
+      body: form
+    },
+    (chunk) => {
+      const events = chunk.split(/\n\n/)
+      for (const event of events) {
+        const dataLines = event
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line) => line.startsWith('data:'))
 
-  const flushSseBuffer = () => {
-    // SSE events are separated by a blank line. Keep any partial event in the buffer
-    // so chunked production responses do not lose data between onprogress calls.
-    const events = sseBuffer.split(/\n\n/)
-    sseBuffer = events.pop() ?? ''
+        for (const dataLine of dataLines) {
+          const jsonStr = dataLine.slice(5).trim()
+          if (!jsonStr) continue
 
-    for (const event of events) {
-      const dataLines = event
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => line.startsWith('data:'))
+          let parsed: AgentStep & { result?: AgentAnalyzeResult; history_id?: number }
+          try {
+            parsed = JSON.parse(jsonStr)
+          } catch {
+            continue
+          }
+          
+          streamStarted = true
 
-      for (const dataLine of dataLines) {
-        const jsonStr = dataLine.slice(5).trim()
-        if (!jsonStr) continue
-
-        let parsed: AgentStep & { result?: AgentAnalyzeResult; history_id?: number }
-        try {
-          parsed = JSON.parse(jsonStr)
-        } catch {
-          continue
-        }
-
-        if (parsed.step === 'complete' && parsed.result) {
-          onComplete(parsed.result)
-        } else if (parsed.step === 'history_saved' && parsed.history_id) {
-          // Attach history_id to the result so the feedback button can use it
-          onStep({ step: 'history_saved', status: 'done', history_id: parsed.history_id } as AgentStep)
-        } else if (parsed.step === 'error') {
-          onError(parsed.message ?? 'Agent encountered an error.')
-        } else {
-          onStep(parsed as AgentStep)
+          if (parsed.step === 'complete' && parsed.result) {
+            onComplete(parsed.result)
+          } else if (parsed.step === 'history_saved' && parsed.history_id) {
+            onStep({ step: 'history_saved', status: 'done', history_id: parsed.history_id } as AgentStep)
+          } else if (parsed.step === 'error') {
+            onError(parsed.message ?? 'Agent encountered an error.')
+          } else {
+            onStep(parsed as AgentStep)
+          }
         }
       }
+    },
+    () => {
+      if (!streamStarted) {
+        onError('Stream finished but no data was received.')
+      }
+    },
+    (err) => {
+      onError(err.message || 'Network error')
     }
-  }
+  )
 
-  xhr.onprogress = () => {
-    const chunk = xhr.responseText.slice(lastResponseLength)
-    lastResponseLength = xhr.responseText.length
-    sseBuffer += chunk
-    flushSseBuffer()
-  }
+  stream.connect()
+  return () => stream.abort()
+}
 
-  xhr.onload = () => {
-    // Process any final buffered event after the last network chunk arrives.
-    flushSseBuffer()
-  }
+export function agentAnalyzeAsync(
+  resumeFile: File,
+  jobDescription: string,
+  modelId?: string,
+): Promise<AgentAnalyzeResult> {
+  return new Promise((resolve, reject) => {
+    agentAnalyze(
+      resumeFile,
+      jobDescription,
+      modelId,
+      () => {},
+      resolve,
+      reject,
+    )
+  })
+}
 
-  xhr.onerror = () => onError('Network error. Please check your connection and try again.')
-  xhr.ontimeout = () => onError('Request timed out. The agent took too long.')
-  xhr.timeout = 300_000 // 5 minutes max
+export async function fetchProfile(): Promise<ProfileResponse> {
+  const { data } = await axios.get<ProfileResponse>(`${BASE}/profile`)
+  return data
+}
 
-  xhr.send(form)
+export async function saveProfile(careerData: CareerProfile): Promise<ProfileResponse> {
+  const { data } = await axios.put<ProfileResponse>(`${BASE}/profile`, careerData)
+  return data
+}
 
-  // Return cleanup function
-  return () => xhr.abort()
+export async function importResumeToProfile(file: File): Promise<ProfileResponse> {
+  const form = new FormData()
+  form.append('resume_file', file)
+  const { data } = await axios.post<ProfileResponse>(`${BASE}/profile/import-resume`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data
+}
+
+export function agentAnalyzeFromProfile(
+  jobDescription: string,
+  modelId: string | undefined,
+  onStep: (step: AgentStep) => void,
+  onComplete: (result: AgentAnalyzeResult) => void,
+  onError: (message: string) => void,
+): () => void {
+  const token = localStorage.getItem('auth_token') ?? ''
+  let streamStarted = false
+
+  const stream = new StableStream(
+    `${BASE}/profile/agent-generate`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream'
+      },
+      body: JSON.stringify({ job_description: jobDescription, model: modelId })
+    },
+    (chunk) => {
+      const events = chunk.split(/\n\n/)
+      for (const event of events) {
+        const dataLines = event
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line) => line.startsWith('data:'))
+
+        for (const dataLine of dataLines) {
+          const jsonStr = dataLine.slice(5).trim()
+          if (!jsonStr) continue
+
+          let parsed: AgentStep & { result?: AgentAnalyzeResult; history_id?: number }
+          try {
+            parsed = JSON.parse(jsonStr)
+          } catch {
+            continue
+          }
+          
+          streamStarted = true
+
+          if (parsed.step === 'complete' && parsed.result) {
+            onComplete(parsed.result)
+          } else if (parsed.step === 'history_saved' && parsed.history_id) {
+            onStep({ step: 'history_saved', status: 'done', history_id: parsed.history_id } as AgentStep)
+          } else if (parsed.step === 'error') {
+            onError(parsed.message ?? 'Agent encountered an error.')
+          } else {
+            onStep(parsed as AgentStep)
+          }
+        }
+      }
+    },
+    () => {
+      if (!streamStarted) onError('Stream finished but no data was received.')
+    },
+    (err) => onError(err.message || 'Network error')
+  )
+
+  stream.connect()
+  return () => stream.abort()
 }

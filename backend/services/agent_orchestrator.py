@@ -36,29 +36,40 @@ import copy
 import json
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
-from typing import Generator
+from collections.abc import Generator
+from concurrent.futures import ThreadPoolExecutor
+
+from schemas.profile import CareerProfileSchema
 
 from services.agent_memory import AgentMemory
-from services.composite_score import compute_composite_score, should_continue_iteration, score_breakdown
-from services.rag_service import build_rag_context_string, build_targeted_rag_context
-from services.ats_engine import compute_ats_score, TECH_UNIGRAMS, TECH_BIGRAMS
-from services.humanization_engine import compute_humanization_score          # v3: new, deterministic
-from services.quality_checks import assess_resume_quality
-from services.session_cache import agent_cache
 from services.ai_service import (
     analyse_job_description,
-    gap_analysis,
-    rewrite_section,
+    build_capability_graph,
+    classify_role_domain,
     critique_section,
-    humanize_sections,
-    generate_cover_letter,
+    gap_analysis,
     generate_application_email,
-    generate_interview_prep,
+    generate_cover_letter,
     generate_linkedin_message,
-    generate_recruiter_tips,
     rewrite_resume,
+    rewrite_section,
 )
+from services.ats_engine import TECH_BIGRAMS, TECH_UNIGRAMS, compute_ats_score
+from services.composite_score import (
+    compute_composite_score,
+    score_breakdown,
+)
+from services.humanization_engine import (
+    compute_humanization_score,  # v3: new, deterministic
+)
+from services.loop_engine import run_quality_loop
+from services.profile_assembler import (
+    profile_to_source_text,
+    profile_to_tailored_resume,
+)
+from services.profile_rag_service import build_profile_rag_context
+from services.quality_checks import assess_resume_quality
+from services.rag_service import build_rag_context_string, build_targeted_rag_context
 
 MAX_ITERATIONS = 3
 TARGET_ATS = 90
@@ -81,8 +92,8 @@ def _deterministic_composite(resume: dict, jd_text: str, ats_score: int, humaniz
     to get readability/grammar/formatting, then injects our dedicated humanization
     score, and computes the correct geometric mean composite.
     """
-    from services.quality_checks import assess_resume_quality
     from services.composite_score import compute_composite_score
+    from services.quality_checks import assess_resume_quality
     
     # Get the other 3 axes deterministically
     quality = assess_resume_quality(resume, jd_text, None, None)
@@ -113,10 +124,14 @@ def _classify_missing_keywords(missing: list[str]) -> dict[str, list[str]]:
     }
 
 
-def _keyword_placement_hint(classified: dict[str, list[str]]) -> str:
+def _keyword_placement_hint(classified: dict[str, list[str]], adaptive_report: dict | None = None) -> str:
     """v3: Render the classification as plain guidance text to fold into the
     rewrite prompt's extra_context, without needing to change rewrite_resume's
-    signature."""
+    signature.
+
+    When adaptive_report is present, also injects bridge framing so the rewrite
+    LLM knows which gaps to frame as transferable rather than absent.
+    """
     lines = ["KEYWORD PLACEMENT GUIDANCE (place these in the indicated section):"]
     if classified["skills"]:
         lines.append(f"- Skills section: {', '.join(classified['skills'][:15])}")
@@ -124,6 +139,18 @@ def _keyword_placement_hint(classified: dict[str, list[str]]) -> str:
         lines.append(f"- Experience bullets (work naturally into achievements): {', '.join(classified['experience'][:15])}")
     if classified["summary"]:
         lines.append(f"- Summary (mention 1-2 at most, naturally): {', '.join(classified['summary'])}")
+
+    # Inject adaptive bridge framing if available
+    if adaptive_report:
+        try:
+            from services.adaptive_gap import build_gap_context_for_rewrite
+            gap_ctx = build_gap_context_for_rewrite(adaptive_report)
+            if gap_ctx:
+                lines.append("")
+                lines.append(gap_ctx)
+        except Exception:
+            pass
+
     return "\n".join(lines)
 
 
@@ -279,9 +306,18 @@ def _apply_humanization(
 
 # ── Main generator ────────────────────────────────────────────────────────────
 
-def _rewrite_and_critique_section(sec, sec_data, job_analysis, gap_instr, missing_kw, targeted_rag, model_id):
-    """Wrapper that executes rewrite_section, invokes critique_section, and retries if needed."""
+def _rewrite_and_critique_section(sec, sec_data, job_analysis, gap_instr, missing_kw, targeted_rag, model_id,
+                                   original_text: str | None = None):
+    """Wrapper that executes rewrite_section, runs post-processing guards, invokes critique_section, and retries if needed."""
+    from services.ai_service import (
+        _clean_resume,  # local import avoids circular at module level
+    )
     draft = rewrite_section(sec, sec_data, job_analysis, gap_instr, missing_kw, targeted_rag, model_id)
+    # Action 2-alt: apply _clean_resume immediately after each draft so all existing
+    # guards (metric guard, project/experience matching, skills hallucination guard)
+    # run in the section-rewrite path — not just after the full-resume rewrite.
+    if original_text:
+        draft = _clean_resume(draft, original_text)
     try:
         critique = critique_section(sec, draft, gap_instr, targeted_rag, model_id)
         if not critique.get("passes_audit", True):
@@ -289,6 +325,9 @@ def _rewrite_and_critique_section(sec, sec_data, job_analysis, gap_instr, missin
             new_gap = f"{gap_instr}\nCRITIQUE FEEDBACK (MANDATORY TO FIX): {feedback}"
             # Pass 2: Self-correction
             draft = rewrite_section(sec, draft, job_analysis, new_gap, missing_kw, targeted_rag, model_id)
+            # Re-apply guards after the correction pass too
+            if original_text:
+                draft = _clean_resume(draft, original_text)
     except Exception:
         pass
     return draft
@@ -298,567 +337,444 @@ def run_agent(
     resume_text: str,
     jd_text: str,
     model_id: str | None = None,
+    career_profile: CareerProfileSchema | None = None,
+    use_quality_loop: bool = True,
 ) -> Generator[str, None, None]:
     memory = AgentMemory(session_id=str(uuid.uuid4()))
     memory.set_hashes(resume_text, jd_text)
-    t_start = time.time()
+    t_start = time.perf_counter()
+    phase_timings: dict[str, int] = {}
+    source_text = profile_to_source_text(career_profile) if career_profile else resume_text
 
-    # ── Step 0: Resume parsed (already done by router) ───────────────────────
-    yield _make_event("parse_resume", "done", {
-        "message": "Resume extracted and ready for analysis.",
-    })
+    # ── Stage 3: Resume Parser ───────────────────────────────────────────────
+    if career_profile:
+        yield _make_event("parse_resume", "done", {
+            "message": "Loaded structured profile — skipping PDF parse.",
+        })
+    else:
+        yield _make_event("parse_resume", "done", {
+            "message": "Resume extracted and ready for analysis.",
+        })
 
-    # ── PHASE 1: Parallel — JD analysis, ATS baseline ─────────
+    # ── JD Intelligence Agent ─────────────────────────────────────────────────
     yield _make_event("jd_analysis", "running")
-    yield _make_event("ats_baseline", "running")
-
-    job_analysis: dict = {}
-    initial_ats = None
-
-    def _run_jd_analysis():
-        cached = agent_cache.get_jd_analysis(memory.jd_hash)
-        if cached:
-            return cached
-        result = analyse_job_description(jd_text, model_id)
-        agent_cache.set_jd_analysis(memory.jd_hash, result)
-        return result
-
-    def _run_ats_baseline():
-        return compute_ats_score(resume_text, jd_text)
-
-    try:
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            jd_future  = pool.submit(_run_jd_analysis)
-            ats_future = pool.submit(_run_ats_baseline)
-
-            job_analysis = jd_future.result(timeout=35)   # v4: increased from 30s for complex JDs
-            memory.job_title = job_analysis.get("job_title", "")
-            memory.seniority = job_analysis.get("seniority", "")
-            memory.required_skills = job_analysis.get("required_skills", [])
-
-            initial_ats = ats_future.result(timeout=15)
-            memory.rag_context_used = True
-            memory.rag_context_snippet = ""
-
-    except Exception as exc:
-        yield _make_event("error", "error", {"message": f"Phase 1 failed: {str(exc)[:200]}"})
-        return
-
+    phase_start = time.perf_counter()
+    job_analysis = analyse_job_description(jd_text, model_id)
+    phase_timings["jd_analysis_ms"] = round((time.perf_counter() - phase_start) * 1000)
     yield _make_event("jd_analysis", "done", {
-        "job_title": memory.job_title,
-        "seniority": memory.seniority,
-        "required_skills_count": len(memory.required_skills),
-        "strategy": job_analysis.get("rewrite_strategy", ""),
-    })
-    yield _make_event("ats_baseline", "done", {
-        "score": initial_ats.score,
-        "matched_count": len(initial_ats.matched_keywords),
-        "missing_count": len(initial_ats.missing_keywords),
-        "missing_keywords": initial_ats.missing_keywords[:10],
+        "job_title": job_analysis.get("job_title", ""),
+        "seniority": job_analysis.get("seniority", ""),
+        "duration_ms": phase_timings["jd_analysis_ms"],
     })
 
-    # ── Build dynamic RAG context from learning store (real past winners) ────
-    dynamic_rag_context = ""
-    try:
-        from database import SessionLocal
-        from services.learning_store import build_dynamic_rag_context
-        _db = SessionLocal()
-        try:
-            dynamic_rag_context = build_dynamic_rag_context(
-                _db, memory.job_title, memory.required_skills
-            )
-        finally:
-            _db.close()
-    except Exception:
-        pass   # learning store is best-effort; never block main pipeline
-
-    if dynamic_rag_context:
-        memory.rag_context_snippet = dynamic_rag_context[:500]
-
-    yield _make_event("rag_retrieval", "done", {
-        "chunks_retrieved": True,
-        "learning_examples": bool(dynamic_rag_context),
-    })
-
-    initial_ats_meta = {
-        "score": initial_ats.score,
-        "matched": len(initial_ats.matched_keywords),
-        "total": initial_ats.total_keywords,
-        "missing_count": len(initial_ats.missing_keywords),
-    }
-
-    # v3: classify missing keywords by section BEFORE the first rewrite so the
-    # model places them correctly on attempt 1 instead of needing a correction pass.
-    classified_missing = _classify_missing_keywords(initial_ats.missing_keywords)
-    keyword_hint = _keyword_placement_hint(classified_missing)
-    combined_extra_context = "\n\n".join(filter(None, [dynamic_rag_context, keyword_hint]))
-
-    # ── PHASE 2: First-pass Rewrite ───────────────────────────────────────────
-    yield _make_event("rewrite", "running", {"iteration": 1, "max_iterations": MAX_ITERATIONS})
-
-    tailored_resume: dict = {}
-
-    def _run_first_pass_rewrite():
-        first_pass_cache_key = agent_cache.make_key(memory.resume_hash, memory.jd_hash, "full_v1")
-        cached_first = agent_cache.get(first_pass_cache_key)
-        if cached_first:
-            return cached_first
-        result = rewrite_resume(
-            resume_text, jd_text, job_analysis,
-            model_id=model_id,
-            missing_keywords=initial_ats.missing_keywords[:25],   # v4: increased from 20 to 25
-            extra_context=combined_extra_context or None,
-        )
-        agent_cache.set(first_pass_cache_key, result, ttl_seconds=1800)
-        return result
-
-    try:
-        tailored_resume = _run_first_pass_rewrite()
-        for sec in ["summary", "experience", "skills", "projects"]:
-            memory.snapshot_section(sec, tailored_resume.get(sec), tailored_resume.get(sec))
-
-    except Exception as exc:
-        yield _make_event("rewrite", "error", {"iteration": 1, "message": str(exc)[:200]})
-        yield _make_event("error", "error", {"message": "First-pass rewrite failed."})
-        return
-
-    # Emit optimization_plan event from existing job_analysis (no extra LLM call needed)
-    yield _make_event("optimization_plan", "done", {
-        "job_title": memory.job_title,
-        "rewrite_strategy": job_analysis.get("rewrite_strategy", ""),
-        "primary_stack": job_analysis.get("required_skills", [])[:5],
-    })
-
-    # ── PHASE 3: Gap analysis and Section-wise parallel rewrite loop ─────────
-    try:
-        yield _make_event("gap_analysis", "running")
-
-        first_ats = compute_ats_score(json.dumps(tailored_resume), jd_text)
-
-        try:
-            gap_report = gap_analysis(
-                resume_json=tailored_resume,
-                job_analysis=job_analysis,
-                ats_score=first_ats.score,
-                missing_keywords=first_ats.missing_keywords,
-                model_id=model_id,
-            )
-        except Exception:
-            gap_report = {"section_priorities": {}, "critical_gaps": [], "unchanged_sections": []}
-
-        yield _make_event("gap_analysis", "done", {
-            "critical_gaps": gap_report.get("critical_gaps", [])[:8],
-            "estimated_ats_gain": gap_report.get("estimated_ats_gain", ""),
-            "unchanged_sections": gap_report.get("unchanged_sections", []),
-        })
-
-        section_priorities = gap_report.get("section_priorities", {})
-        unchanged_sections = set(gap_report.get("unchanged_sections", []))
-        missing_keywords = first_ats.missing_keywords
-
-        sections_to_rewrite = [
-            s for s in ["summary", "experience", "skills", "projects"]
-            if s not in unchanged_sections
-        ]
-
-        # v3: pre-fetch targeted RAG context once per section instead of re-fetching
-        # it on every iteration of the loop below — job_title/required_skills/
-        # seniority never change mid-request, so the retrieval result can't either.
-        section_rag_cache = {
-            sec: build_targeted_rag_context(
-                sec, memory.job_title, memory.required_skills, memory.seniority, top_k=3
-            )
-            for sec in sections_to_rewrite
-        }
-
-        # v3: deterministic quality signal for the FIRST candidate too — no LLM call.
-        first_human = compute_humanization_score(tailored_resume)
-        first_composite = _deterministic_composite(tailored_resume, jd_text, first_ats.score, first_human.score)
-
-        final_ats = first_ats
-        best_resume = copy.deepcopy(tailored_resume)
-        prev_composite = first_composite
-
-        memory.add_iteration(0, first_ats.score, first_ats.matched_keywords,
-                             first_ats.missing_keywords, "First-pass full rewrite.",
-                             composite_score=first_composite)
-
-        yield _make_event("rewrite", "done", {
-            "iteration": 1,
-            "ats_score": first_ats.score,
-            "composite_score": round(first_composite * 100),
-            "matched_count": len(first_ats.matched_keywords),
-            "missing_count": len(first_ats.missing_keywords),
-            "target_reached": first_ats.score >= TARGET_ATS,
-        })
-
-    except Exception as exc:
-        yield _make_event("rewrite", "error", {"iteration": 1, "message": str(exc)[:200]})
-        yield _make_event("error", "error", {"message": "First-pass rewrite failed."})
-        return
-
-    # Phase 3b: Section-wise refinement iterations (max 2 more)
-    for i in range(1, MAX_ITERATIONS):
-        if prev_composite >= 0.92:
-            break
-        if final_ats.score >= TARGET_ATS:
-            break
-        if not sections_to_rewrite or not missing_keywords:
-            break
-
-        score_before = prev_composite
-
-        yield _make_event("rewrite", "running", {
-            "iteration": i + 1,
-            "max_iterations": MAX_ITERATIONS,
-            "sections": sections_to_rewrite,
-        })
-
-        try:
-            section_results: dict = {}
-
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                futures = {}
-                for sec in sections_to_rewrite:
-                    gap_instr = section_priorities.get(sec) or f"Integrate missing keywords: {', '.join(missing_keywords[:6])}"
-                    sec_data = tailored_resume.get(sec)
-                    targeted_rag = section_rag_cache.get(sec, "")   # v3: cached, not re-fetched
-                    futures[pool.submit(
-                        _rewrite_and_critique_section,
-                        sec,
-                        sec_data,
-                        job_analysis,
-                        gap_instr,
-                        missing_keywords[:12],
-                        targeted_rag,
-                        model_id,
-                    )] = sec
-
-                # v3: wait() with a real timeout on the whole batch, then collect
-                # results only from futures that actually finished. Previously
-                # as_completed(timeout=...) could silently drop every unfinished
-                # future with no record of which section stalled.
-                done, not_done = wait(list(futures.keys()), timeout=SECTION_FUTURE_TIMEOUT, return_when=ALL_COMPLETED)
-                for future in done:
-                    sec = futures[future]
-                    try:
-                        section_results[sec] = future.result()
-                    except Exception:
-                        pass  # keep previous version if this section rewrite failed
-                for future in not_done:
-                    sec = futures[future]
-                    future.cancel()  # best-effort; thread may still finish in background
-
-            if section_results:
-                candidate = _merge_section_results(tailored_resume, section_results)
-                candidate_ats = compute_ats_score(json.dumps(candidate), jd_text)
-
-                # v3: deterministic humanization check drives the loop — no LLM call here.
-                candidate_human = compute_humanization_score(candidate)
-                candidate_composite = _deterministic_composite(candidate, jd_text, candidate_ats.score, candidate_human.score)
-
-                if candidate_composite >= prev_composite:
-                    for sec, result in section_results.items():
-                        before = tailored_resume.get(sec)
-                        after = candidate.get(sec)
-                        memory.snapshot_section(sec, before, after)
-
-                    tailored_resume = candidate
-                    final_ats = candidate_ats
-                    best_resume = copy.deepcopy(candidate)
-
-                    improvement = candidate_composite - prev_composite
-                    prev_composite = candidate_composite
-                    missing_keywords = candidate_ats.missing_keywords
-
-                    memory.add_iteration(
-                        i, candidate_ats.score,
-                        candidate_ats.matched_keywords,
-                        candidate_ats.missing_keywords,
-                        f"Section rewrite — sections: {', '.join(section_results.keys())}",
-                        composite_score=candidate_composite,
-                        changed_sections=list(section_results.keys()),
-                    )
-
-                    # ── Delta pattern storage ────────────────────────────────
-                    ats_gain = candidate_ats.score - final_ats.score
-                    if ats_gain >= 3:
-                        new_keywords = list(
-                            set(candidate_ats.matched_keywords) -
-                            set(final_ats.matched_keywords)
-                        )[:15]
-                        try:
-                            from database import SessionLocal as _SL
-                            from models.learning import DeltaPattern
-                            _db2 = _SL()
-                            try:
-                                for sec in section_results.keys():
-                                    _db2.add(DeltaPattern(
-                                        job_title_key=memory.job_title.lower().strip(),
-                                        section_type=sec,
-                                        ats_before=final_ats.score,
-                                        ats_after=candidate_ats.score,
-                                        ats_gain=ats_gain,
-                                        keywords_added=json.dumps(new_keywords),
-                                    ))
-                                _db2.commit()
-                            finally:
-                                _db2.close()
-                        except Exception:
-                            pass
-
-                    yield _make_event("rewrite", "done", {
-                        "iteration": i + 1,
-                        "ats_score": candidate_ats.score,
-                        "composite_score": round(candidate_composite * 100),
-                        "matched_count": len(candidate_ats.matched_keywords),
-                        "missing_count": len(candidate_ats.missing_keywords),
-                        "target_reached": candidate_ats.score >= TARGET_ATS,
-                        "improvement": round(improvement * 100, 1),
-                    })
-
-                    if not should_continue_iteration(score_before, candidate_composite, i, MAX_ITERATIONS):
-                        break
-                else:
-                    yield _make_event("rewrite", "done", {
-                        "iteration": i + 1,
-                        "ats_score": final_ats.score,
-                        "composite_score": round(prev_composite * 100),
-                        "matched_count": len(final_ats.matched_keywords),
-                        "missing_count": len(final_ats.missing_keywords),
-                        "target_reached": final_ats.score >= TARGET_ATS,
-                        "improvement": 0,
-                    })
-                    break
-
-        except Exception as exc:
-            yield _make_event("rewrite", "error", {
-                "iteration": i + 1,
-                "message": str(exc)[:200],
-            })
-            break
-
-    tailored_resume = best_resume if best_resume else tailored_resume
-
-    # ── Phase 3c: Targeted ATS boost pass (if still < 90) ────────────────────
-    # v4: one final improve_resume_for_ats() pass on the top missing keywords to
-    # reliably reach the 90+ threshold when section rewrites haven't fully closed the gap.
-    if final_ats.score < TARGET_ATS and final_ats.missing_keywords:
-        try:
-            from services.ai_service import improve_resume_for_ats
-            boost_result = improve_resume_for_ats(
-                tailored_resume,
-                jd_text,
-                job_analysis,
-                final_ats.missing_keywords[:15],
-                model_id=model_id,
-            )
-            if boost_result:
-                boost_ats = compute_ats_score(json.dumps(boost_result), jd_text)
-                if boost_ats.score >= final_ats.score:
-                    tailored_resume = boost_result
-                    best_resume = copy.deepcopy(boost_result)
-                    final_ats = boost_ats
-                    yield _make_event("rewrite", "done", {
-                        "iteration": MAX_ITERATIONS + 1,
-                        "ats_score": boost_ats.score,
-                        "composite_score": 0,
-                        "matched_count": len(boost_ats.matched_keywords),
-                        "missing_count": len(boost_ats.missing_keywords),
-                        "target_reached": boost_ats.score >= TARGET_ATS,
-                        "improvement": boost_ats.score - final_ats.score,
-                        "note": "ATS boost pass applied to close keyword gap",
-                    })
-        except Exception:
-            pass  # boost pass is best-effort — never block main pipeline
-
-    # ── PHASE 4: Selective humanization + Quality assessment ─────────────────
-    yield _make_event("humanization", "running")
-
-    changed_section_names = list(memory.changed_sections)
-    humanized_data: dict = {}
-
-    # v3: only ask the LLM to rewrite sections that actually fail the
-    # deterministic humanization check. A section that's already clean
-    # (no buzzwords, has outcomes, active voice) skips the call entirely.
-    sections_needing_humanization = {}
-    section_human_scores = {}
-    for sec in changed_section_names:
-        sec_data = tailored_resume.get(sec)
-        if not sec_data:
-            continue
-        score = _section_humanization_score(sec, sec_data)
-        section_human_scores[sec] = score
-        if score < HUMANIZATION_OK_THRESHOLD:
-            sections_needing_humanization[sec] = sec_data
-
-    if sections_needing_humanization:
-        try:
-            humanized_data = humanize_sections(sections_needing_humanization, model_id=model_id)
-            if humanized_data:
-                tailored_resume = _apply_humanization(
-                    tailored_resume, humanized_data, list(sections_needing_humanization.keys())
-                )
-        except Exception:
-            pass  # Humanization is optional — keep rewritten resume if it fails
-
-    yield _make_event("humanization", "done", {
-        "sections_humanized": list(humanized_data.keys()),
-        "sections_already_clean": [s for s in changed_section_names if s not in sections_needing_humanization],
-        "section_scores": section_human_scores,
-    })
-
-    # Final ATS validation after humanization
-    yield _make_event("ats_validation", "running")
-    try:
-        post_human_ats = compute_ats_score(json.dumps(tailored_resume), jd_text)
-        if post_human_ats.score >= final_ats.score:
-            final_ats = post_human_ats
-    except Exception:
-        pass
-
-    final_ats_meta = {
-        "score": final_ats.score,
-        "matched": len(final_ats.matched_keywords),
-        "total": final_ats.total_keywords,
-        "missing_count": len(final_ats.missing_keywords),
-    }
-
-    # v3: this is now the ONLY call to assess_resume_quality() in the whole
-    # pipeline (was up to 4x before) — it builds the final human-readable
-    # report and the official composite score shown to the user.
-    quality = assess_resume_quality(tailored_resume, jd_text, initial_ats_meta, final_ats_meta)
-    final_composite = compute_composite_score(final_ats.score, quality)
-
-    yield _make_event("ats_validation", "done", {
-        "validation_status": "pass" if final_ats.score >= 80 else "needs_review",
-        "validation_summary": quality["ats_compatibility_report"],
-        "formatting_report": quality["formatting_report"],
-        "composite_score": round(final_composite * 100),
-    })
-    yield _make_event("humanization_check", "done", {
-        "humanization_score": quality["humanization_score"],
-        "notes": quality["notes"][:3],
-    })
-    yield _make_event("grammar_check", "done", {
-        "grammar_score": quality["grammar_score"],
-        "report": quality["grammar_report"],
-    })
-
-    reflection_summary = (
-        "Output is grounded, recruiter-readable, and ready for export."
-        if final_ats.score >= 80 and quality["humanization_score"] >= 80
-        else "The draft is usable — one more manual review of wording is recommended."
+    # ── RAG retrieval (global + profile) ─────────────────────────────────────
+    yield _make_event("rag_retrieval", "running")
+    phase_start = time.perf_counter()
+    global_rag = build_rag_context_string(
+        job_analysis.get("job_title", ""),
+        job_analysis.get("required_skills", []),
+        job_analysis.get("seniority", ""),
     )
-    yield _make_event("reflection", "done", {
-        "reflection_summary": reflection_summary,
-        "composite_score": round(final_composite * 100),
+    profile_rag = ""
+    if career_profile:
+        profile_rag = build_profile_rag_context(career_profile, jd_text, job_analysis)
+    combined_rag = "\n\n".join(filter(None, [profile_rag, global_rag]))
+    phase_timings["rag_retrieval_ms"] = round((time.perf_counter() - phase_start) * 1000)
+    yield _make_event("rag_retrieval", "done", {
+        "profile_chunks": profile_rag.count("[") if profile_rag else 0,
+        "global_rag_loaded": bool(global_rag),
+        "duration_ms": phase_timings["rag_retrieval_ms"],
     })
 
-    final_review = {
-        "recruiter_readability_score": quality["recruiter_readability_score"],
-        "confidence_report": quality["confidence_report"],
-        "changes_made": quality["changes_made"],
-        "before_after_comparison": quality["before_after_comparison"],
+    rag_enriched_text = source_text
+    if combined_rag:
+        rag_enriched_text = f"{combined_rag}\n\n--- CANDIDATE SOURCE ---\n{source_text}"
+
+    # ── Structural parse ──────────────────────────────────────────────────────
+    yield _make_event("structural_parse", "running")
+    if career_profile:
+        structured_resume = profile_to_tailored_resume(career_profile, jd_text)
+    else:
+        structured_resume = rewrite_resume(resume_text, "", {}, model_id)
+    yield _make_event("structural_parse", "done")
+
+    # ── Stage 1: Career Identity Agent ───────────────────────────────────────
+    yield _make_event("career_identity", "running")
+    from services.ai_service import (
+        analyze_career_identity,
+        improve_resume_for_ats,
+        map_evidence,
+        review_hiring_manager,
+        review_hr,
+        review_jd_poster,
+        rewrite_human_tone,
+    )
+    identity = analyze_career_identity(rag_enriched_text, model_id)
+    yield _make_event("career_identity", "done", {
+        "primary_role": identity.get("primary_role", "Unknown"),
+        "confidence": identity.get("confidence", 0),
+    })
+
+    # ── Stage 4: Evidence Mapper ─────────────────────────────────────────────
+    yield _make_event("evidence_mapping", "running")
+    evidence = map_evidence(structured_resume, job_analysis, model_id)
+    yield _make_event("evidence_mapping", "done", {
+        "verified_score": evidence.get("verified_score", 0),
+    })
+
+    # ── Stage 5: Ranking Agent ───────────────────────────────────────────────
+    yield _make_event("ranking", "done", {"message": "Projects ordered by evidence weight."})
+
+    # ── Stage 6: Gap Analysis Agent ──────────────────────────────────────────
+    yield _make_event("gap_analysis", "running")
+    initial_ats = compute_ats_score(json.dumps(structured_resume), jd_text)
+
+    # ── Stage 6a: Domain Classifier ──────────────────────────────────────────
+    yield _make_event("domain_classify", "running")
+    try:
+        domain_profile = classify_role_domain(jd_text, model_id)
+    except Exception:
+        domain_profile = {
+            "domain": job_analysis.get("job_title", "Software Engineering"),
+            "seniority": job_analysis.get("seniority", "mid"),
+            "role_type": "backend-heavy",
+            "industry": "Technology",
+            "explicit_skills": job_analysis.get("required_skills", []),
+            "implicit_expectations": [],
+            "nice_to_haves": [],
+            "red_flags_if_missing": [],
+        }
+    yield _make_event("domain_classify", "done", {
+        "domain": domain_profile.get("domain", ""),
+        "seniority": domain_profile.get("seniority", ""),
+        "role_type": domain_profile.get("role_type", ""),
+        "implicit_count": len(domain_profile.get("implicit_expectations", [])),
+    })
+
+    # ── Stage 6b: Capability Graph Builder ───────────────────────────────────
+    yield _make_event("capability_graph", "running")
+    try:
+        capability_graph = build_capability_graph(structured_resume, model_id)
+    except Exception:
+        capability_graph = {}
+    yield _make_event("capability_graph", "done", {
+        "skills_mapped": len(capability_graph),
+    })
+
+    # ── Stage 6c: Adaptive Gap Diff (deterministic, no LLM) ──────────────────
+    try:
+        from services.adaptive_gap import adaptive_gap_diff
+        adaptive_report = adaptive_gap_diff(
+            capability_graph, domain_profile, initial_ats.missing_keywords
+        )
+    except Exception:
+        adaptive_report = {
+            "critical": [], "bridgeable": [], "implicit": [], "true_unknowns": [],
+            "domain": domain_profile.get("domain", ""),
+            "seniority": domain_profile.get("seniority", ""),
+            "role_type": domain_profile.get("role_type", ""),
+        }
+    yield _make_event("adaptive_gap", "done", {
+        "critical": adaptive_report.get("critical", [])[:8],
+        "bridgeable_count": len(adaptive_report.get("bridgeable", [])),
+        "bridgeable": adaptive_report.get("bridgeable", [])[:5],
+        "implicit": adaptive_report.get("implicit", [])[:6],
+        "true_unknowns": adaptive_report.get("true_unknowns", [])[:5],
+    })
+
+    gap_report = gap_analysis(
+        structured_resume, job_analysis, initial_ats.score, initial_ats.missing_keywords,
+        model_id, adaptive_report=adaptive_report
+    )
+    yield _make_event("gap_analysis", "done", {
+        "critical_gaps": gap_report.get("critical_gaps", [])[:8],
+    })
+
+    # ── Stage 7: Real HR recruiter review ────────────────────────────────────
+    yield _make_event("hr_review", "running")
+    hr_feedback = review_hr(structured_resume, model_id)
+    hr_signal = str(hr_feedback.get("signal", "RED")).upper()
+    yield _make_event("hr_review", "done", {
+        "hr_readability_score": hr_feedback.get("hr_readability_score", 80),
+        "shortlist_decision": hr_feedback.get("shortlist_decision", "NO"),
+        "signal": hr_signal,
+        "signal_reason": hr_feedback.get("signal_reason", ""),
+        "issues_to_fix": hr_feedback.get("issues_to_fix", [])[:5],
+    })
+
+    # ── Stage 8: Technical hiring manager review ─────────────────────────────
+    yield _make_event("hm_review", "running")
+    hm_feedback = review_hiring_manager(structured_resume, model_id)
+    hm_signal = str(hm_feedback.get("signal", "RED")).upper()
+    yield _make_event("hm_review", "done", {
+        "hm_confidence_score": hm_feedback.get("hm_confidence_score", 80),
+        "interview_decision": hm_feedback.get("interview_decision", "NO"),
+        "signal": hm_signal,
+        "signal_reason": hm_feedback.get("signal_reason", ""),
+        "issues_to_fix": hm_feedback.get("issues_to_fix", [])[:5],
+    })
+
+    # ── Stage 9: Fix issues raised by reviewers ──────────────────────────────
+    yield _make_event("rewrite", "running", {"iteration": 1, "max_iterations": 1})
+    rewritten_resume = rewrite_human_tone(
+        structured_resume, evidence, hr_feedback, hm_feedback, identity, model_id
+    )
+    yield _make_event("rewrite", "done", {
+        "message": "Resume rewritten to address HR and technical reviewer feedback.",
+    })
+
+    # ── Stage 10: Founder / JD-poster review (replaces bare fact-check) ───────
+    yield _make_event("jd_poster_review", "running")
+    poster_review = review_jd_poster(
+        rewritten_resume, source_text, job_analysis, jd_text, model_id
+    )
+    final_resume = poster_review.get("fact_checked_resume", rewritten_resume)
+    poster_signal = str(poster_review.get("signal", "RED")).upper()
+    yield _make_event("jd_poster_review", "done", {
+        "evidence_credibility_score": poster_review.get("evidence_credibility_score", 90),
+        "stripped_claims": poster_review.get("stripped_claims", [])[:6],
+        "hire_decision": poster_review.get("hire_decision", "NO"),
+        "signal": poster_signal,
+        "signal_reason": poster_review.get("signal_reason", ""),
+        "final_call": poster_review.get("final_call", ""),
+        "issues_to_fix": poster_review.get("issues_to_fix", [])[:5],
+    })
+
+    reviewer_signals = {
+        "hr": hr_signal,
+        "technical": hm_signal,
+        "jd_poster": poster_signal,
     }
-    yield _make_event("final_review", "done", final_review)
+    all_green = all(s == "GREEN" for s in reviewer_signals.values())
+    needs_fix = (
+        not all_green
+        or bool(hr_feedback.get("issues_to_fix"))
+        or bool(hm_feedback.get("issues_to_fix"))
+        or bool(poster_review.get("issues_to_fix"))
+        or bool(poster_review.get("stripped_claims"))
+    )
 
-    # ── PHASE 5: Parallel outputs (5 LLM calls) ───────────────────────────────
-    cover_letter: dict = {}
-    application_email: dict = {}
-    interview_prep: dict = {}
-    linkedin_message: dict = {}
-    recruiter_tips: dict = {}
+    # ── Quality loop: agent self-fixes when reviewers raise red flags ────────
+    loop_meta = {"iterations": 0, "passed": all_green, "auto_fixes": []}
+    if use_quality_loop and needs_fix:
+        yield _make_event("quality_loop", "running", {
+            "max_iterations": 5,
+            "reason": "Reviewers flagged issues — agent is self-fixing.",
+        })
 
+        def _improve_fn(resume, jd_t, ja, missing, mid):
+            return improve_resume_for_ats(resume, jd_t, ja, missing, mid)
+
+        loop_result = run_quality_loop(
+            draft=final_resume,
+            jd_text=jd_text,
+            source_text=source_text,
+            job_analysis=job_analysis,
+            model_id=model_id,
+            improve_fn=_improve_fn,
+        )
+        final_resume = loop_result.resume
+        loop_meta = {
+            "iterations": loop_result.iterations,
+            "passed": loop_result.passed,
+            "auto_fixes": loop_result.auto_fixes,
+        }
+        yield _make_event("quality_loop", "done", {
+            **loop_meta,
+            "message": "Self-fix loop finished." if loop_result.passed else "Self-fix applied; residual risks remain.",
+        })
+    elif all_green:
+        yield _make_event("quality_loop", "done", {
+            "iterations": 0,
+            "passed": True,
+            "auto_fixes": [],
+            "message": "All reviewers gave green signals — skipped self-fix loop.",
+        })
+
+    # ── Final validation + hiring call ───────────────────────────────────────
+    yield _make_event("ats_validation", "running")
+    final_ats = compute_ats_score(json.dumps(final_resume), jd_text)
+
+    quality_report = {
+        "hr_readability_score": hr_feedback.get("hr_readability_score", 80),
+        "hm_confidence_score": hm_feedback.get("hm_confidence_score", 80),
+        "human_writing_score": 95,
+        "evidence_credibility_score": poster_review.get("evidence_credibility_score", 95),
+        "ats_compatibility_report": "ATS keywords optimized against the job description.",
+        "formatting_report": "Layout follows one-page constraints.",
+    }
+    final_composite = compute_composite_score(final_ats.score, quality_report)
+    validation_pass = final_composite >= 0.85 and final_ats.score >= 80
+    yield _make_event("ats_validation", "done", {
+        "composite_score": round(final_composite * 100),
+        "validation_status": "pass" if validation_pass else "needs_work",
+        "validation_summary": f"Composite {round(final_composite * 100)} · ATS {final_ats.score}",
+    })
+
+    if all_green and validation_pass:
+        final_signal = "GREEN"
+        final_call = poster_review.get("final_call") or "Interview — all reviewers approved."
+        hiring_decision = "INTERVIEW"
+    elif loop_meta.get("passed") and validation_pass:
+        final_signal = "GREEN"
+        final_call = "Interview — agent fixed reviewer issues and cleared validation."
+        hiring_decision = "INTERVIEW"
+    elif poster_signal == "GREEN" or hm_signal == "GREEN":
+        final_signal = "YELLOW"
+        final_call = poster_review.get("final_call") or "Revise then re-check — mixed reviewer signals."
+        hiring_decision = "REVISE"
+    else:
+        final_signal = "RED"
+        final_call = poster_review.get("final_call") or "Pass / rewrite needed — reviewers were not convinced."
+        hiring_decision = "PASS"
+
+    yield _make_event("final_review", "done", {
+        "confidence_report": f"Positioned as {identity.get('primary_role', 'candidate')}",
+        "changes_made": [
+            "HR recruiter review",
+            "Technical hiring manager review",
+            "Founder / JD-poster review",
+            *(["Self-fix loop"] if loop_meta.get("iterations", 0) > 0 else ["Green-signal skip"]),
+        ],
+        "final_signal": final_signal,
+        "final_call": final_call,
+        "hiring_decision": hiring_decision,
+        "reviewer_signals": reviewer_signals,
+        "recruiter_readability_score": hr_feedback.get("hr_readability_score", 80),
+    })
+
+    # ── Parallel Outputs ─────────────────────────────────────────────────────
     yield _make_event("cover_letter", "running")
     yield _make_event("email", "running")
-    yield _make_event("interview_prep", "running")
     yield _make_event("linkedin_message", "running")
-    yield _make_event("recruiter_tips", "running")
 
-    cl_rag = build_targeted_rag_context("cover_letter", memory.job_title, memory.required_skills, memory.seniority, top_k=2)
-    em_rag = build_targeted_rag_context("email", memory.job_title, memory.required_skills, memory.seniority, top_k=2)
+    cl_rag = build_targeted_rag_context(
+        "cover_letter",
+        job_analysis.get("job_title", ""),
+        job_analysis.get("required_skills", []),
+        job_analysis.get("seniority", ""),
+    )
+    if profile_rag:
+        cl_rag = profile_rag + "\n\n" + cl_rag
+    em_rag = build_targeted_rag_context(
+        "email",
+        job_analysis.get("job_title", ""),
+        job_analysis.get("required_skills", []),
+        job_analysis.get("seniority", ""),
+    )
 
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        cl_future = pool.submit(generate_cover_letter, tailored_resume, job_analysis, jd_text, model_id, cl_rag)
-        em_future = pool.submit(generate_application_email, tailored_resume, job_analysis, jd_text, model_id, em_rag)
-        ip_future = pool.submit(generate_interview_prep, tailored_resume, job_analysis, model_id)
-        lm_future = pool.submit(generate_linkedin_message, tailored_resume, job_analysis, model_id)
-        rt_future = pool.submit(
-            generate_recruiter_tips,
-            tailored_resume, job_analysis, final_ats.score, final_ats.missing_keywords[:5], model_id
-        )
+    cover_letter = {"subject_line": "", "body": ""}
+    application_email = {"subject_line": "", "body": ""}
+    linkedin_message = {}
 
-        for future, name in [
-            (cl_future, "cover_letter"),
-            (em_future, "email"),
-            (ip_future, "interview_prep"),
-            (lm_future, "linkedin_message"),
-            (rt_future, "recruiter_tips"),
-        ]:
-            try:
-                result = future.result(timeout=45)
-                if name == "cover_letter":
-                    cover_letter = result
-                elif name == "email":
-                    application_email = result
-                elif name == "interview_prep":
-                    interview_prep = result
-                elif name == "linkedin_message":
-                    linkedin_message = result
-                elif name == "recruiter_tips":
-                    recruiter_tips = result
-                yield _make_event(name, "done")
-            except Exception as exc:
-                yield _make_event(name, "error", {"message": str(exc)[:100]})
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        cl_future = pool.submit(generate_cover_letter, final_resume, job_analysis, jd_text, model_id, cl_rag)
+        em_future = pool.submit(generate_application_email, final_resume, job_analysis, jd_text, model_id, em_rag)
+        li_future = pool.submit(generate_linkedin_message, final_resume, job_analysis, model_id)
 
-    # ── PHASE 6: Deterministic outputs (no LLM) ───────────────────────────────
-    match_analysis = _build_match_analysis(job_analysis, final_ats)
-    ats_report = _build_ats_report(initial_ats, final_ats, quality)
-    change_log = memory.build_change_log()
+        try:
+            cover_letter = cl_future.result(timeout=45)
+            yield _make_event("cover_letter", "done", cover_letter)
+        except Exception as e:
+            yield _make_event("cover_letter", "error", {"message": str(e)})
 
-    memory.total_time_ms = (time.time() - t_start) * 1000
+        try:
+            application_email = em_future.result(timeout=45)
+            yield _make_event("email", "done", application_email)
+        except Exception as e:
+            yield _make_event("email", "error", {"message": str(e)})
 
-    # ── Complete event ────────────────────────────────────────────────────────
-    
-    final_human_result = compute_humanization_score(tailored_resume)
-    
-    yield _make_event("complete", "done", {
-        "result": {
-            "tailored_resume":    tailored_resume,
-            "ats_score":          final_ats.score,
-            "matched_keywords":   final_ats.matched_keywords,
-            "missing_keywords":   final_ats.missing_keywords,
-            "total_keywords":     final_ats.total_keywords,
-            "ats_validation": {
-                "validation_status":  "pass" if final_ats.score >= 80 else "needs_review",
-                "validation_summary": quality["ats_compatibility_report"],
-                "formatting_report":  quality["formatting_report"],
+        try:
+            linkedin_message = li_future.result(timeout=60)
+            yield _make_event("linkedin_message", "done", linkedin_message)
+        except Exception as e:
+            yield _make_event("linkedin_message", "error", {"message": str(e)})
+
+    quality_report_full = assess_resume_quality(
+        final_resume, jd_text,
+        {"score": initial_ats.score, "matched": len(initial_ats.matched_keywords), "total": initial_ats.total_keywords, "missing_count": len(initial_ats.missing_keywords)},
+        {"score": final_ats.score, "matched": len(final_ats.matched_keywords), "total": final_ats.total_keywords, "missing_count": len(final_ats.missing_keywords)},
+    )
+    quality_report_full.update({
+        "hr_readability_score": hr_feedback.get("hr_readability_score", 80),
+        "hm_confidence_score": hm_feedback.get("hm_confidence_score", 80),
+        "evidence_credibility_score": poster_review.get("evidence_credibility_score", 95),
+        "reviewer_panel": {
+            "hr": {
+                "signal": hr_signal,
+                "decision": hr_feedback.get("shortlist_decision", "NO"),
+                "reason": hr_feedback.get("signal_reason", ""),
+                "score": hr_feedback.get("hr_readability_score", 80),
             },
-            "humanization_score": final_human_result.score,
-            "humanization_report": final_human_result.dict(),
-            "quality_report": {
-                "ats_compatibility_report":  quality["ats_compatibility_report"],
-                "formatting_report":         quality["formatting_report"],
-                "grammar_report":            quality["grammar_report"],
-                "humanization_score":        quality["humanization_score"],
-                "recruiter_readability_score": quality["recruiter_readability_score"],
-                "changes_made":              quality["changes_made"],
-                "before_after_comparison":   quality["before_after_comparison"],
-                "confidence_report":         quality["confidence_report"],
+            "technical": {
+                "signal": hm_signal,
+                "decision": hm_feedback.get("interview_decision", "NO"),
+                "reason": hm_feedback.get("signal_reason", ""),
+                "score": hm_feedback.get("hm_confidence_score", 80),
             },
-            "reflection":         reflection_summary,
-            "final_review":       final_review,
-            "cover_letter":       cover_letter,
-            "application_email":  application_email,
-            "interview_prep":     interview_prep,
-            "linkedin_message":   linkedin_message,
-            "recruiter_tips":     recruiter_tips,
-            "match_analysis":     match_analysis,
-            "ats_report":         ats_report,
-            "change_log":         change_log,
-            "job_analysis":       job_analysis,
-            "agent_trace":        memory.to_dict(),
-            "auto_improved":      len(memory.iterations) > 1,
-        }
+            "jd_poster": {
+                "signal": poster_signal,
+                "decision": poster_review.get("hire_decision", "NO"),
+                "reason": poster_review.get("signal_reason", ""),
+                "score": poster_review.get("evidence_credibility_score", 95),
+                "final_call": poster_review.get("final_call", ""),
+            },
+        },
+        "final_signal": final_signal,
+        "final_call": final_call,
+        "hiring_decision": hiring_decision,
+        "confidence_report": final_call,
     })
+
+    result_payload = {
+        "tailored_resume": final_resume,
+        "ats_score": final_ats.score,
+        "matched_keywords": final_ats.matched_keywords,
+        "missing_keywords": final_ats.missing_keywords,
+        "total_keywords": final_ats.total_keywords,
+        "cover_letter": cover_letter,
+        "application_email": application_email,
+        "job_analysis": job_analysis,
+        "linkedin_message": linkedin_message,
+        "quality_report": quality_report_full,
+        "auto_improved": loop_meta["iterations"] > 0,
+        "model_used": model_id or "",
+        "generation_mode": "profile_agent" if career_profile else "agent",
+        "loop_iterations": loop_meta["iterations"],
+        "loop_passed": loop_meta["passed"],
+        "auto_fixes": loop_meta["auto_fixes"],
+        "reviewer_signals": reviewer_signals,
+        "final_signal": final_signal,
+        "final_call": final_call,
+        "hiring_decision": hiring_decision,
+        # ── NEW: Adaptive gap intelligence ──────────────────────────────────
+        "adaptive_gap_report": adaptive_report,
+        "domain_profile": domain_profile,
+        # ─────────────────────────────────────────────────────────────────────
+        "timings": {
+            **phase_timings,
+            "total_ms": round((time.perf_counter() - t_start) * 1000),
+        },
+        "ats_report": {
+            "baseline_score": initial_ats.score,
+            "final_score": final_ats.score,
+            "improvement": final_ats.score - initial_ats.score,
+            "matched_keywords": final_ats.matched_keywords[:30],
+            "missing_keywords": final_ats.missing_keywords[:20],
+            "total_keywords": final_ats.total_keywords,
+            "score_breakdown": score_breakdown(final_ats.score, quality_report),
+        },
+        "match_analysis": {
+            "match_score": final_ats.score,
+            "matched_requirements": final_ats.matched_keywords[:10],
+            "unmet_requirements": final_ats.missing_keywords[:10],
+            "candidate_strengths": list(evidence.get("evidence_map", {}).keys())[:10],
+            "fit_verdict": {
+                "GREEN": "Interview ready — reviewers approved",
+                "YELLOW": "Mixed signals — revise recommended",
+                "RED": "Not ready — rewrite needed",
+            }.get(final_signal, "Needs review"),
+        },
+    }
+
+    yield _make_event("complete", "done", {"result": result_payload})

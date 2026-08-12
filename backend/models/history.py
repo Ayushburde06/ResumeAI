@@ -1,6 +1,6 @@
-from sqlalchemy import Column, Integer, String, JSON, DateTime, ForeignKey, Text
-from sqlalchemy.sql import func
 from database import Base
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.sql import func
 
 
 class ResumeHistory(Base):

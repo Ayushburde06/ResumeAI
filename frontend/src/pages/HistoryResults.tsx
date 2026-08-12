@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { Loader2, ArrowLeft } from 'lucide-react'
-import { getHistoryEntry, analyzeResume } from '../lib/api'
+import { getHistoryEntry } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import type { HistoryEntry, AnalyzeResponse } from '../types'
 import UnifiedWorkspace from '../components/UnifiedWorkspace'
@@ -30,7 +30,7 @@ export default function HistoryResults() {
   if (loading) {
     return (
       <div className="min-h-screen bg-[#F8F9FA] flex items-center justify-center pt-14">
-        <Loader2 className="w-6 h-6 text-[#1a1f2e] animate-spin" />
+        <Loader2 className="w-6 h-6 text-brand animate-spin" />
       </div>
     )
   }
@@ -76,10 +76,7 @@ export default function HistoryResults() {
     },
   }
 
-  const handleAnalyze = async (file: File, jd: string) => {
-    return analyzeResume(file, jd)
-  }
-
+  
   return (
     <div className="h-[calc(100vh-3.5rem)] overflow-hidden flex flex-col bg-[#F8F9FA]">
       <div className="bg-white/85 backdrop-blur-xl border-b border-white/70 px-6 py-2.5 flex items-center gap-3 shrink-0">
@@ -94,7 +91,7 @@ export default function HistoryResults() {
       <UnifiedWorkspace
         initialResult={initialResult}
         initialJd={entry.job_description ?? ''}
-        onAnalyze={handleAnalyze}
+        
       />
     </div>
   )

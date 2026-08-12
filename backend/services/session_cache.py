@@ -15,7 +15,7 @@ from typing import Any
 
 
 class _CacheEntry:
-    __slots__ = ("value", "expires_at", "created_at")
+    __slots__ = ("created_at", "expires_at", "value")
 
     def __init__(self, value: Any, ttl_seconds: int) -> None:
         self.value = value

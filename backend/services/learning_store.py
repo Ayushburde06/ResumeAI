@@ -11,9 +11,9 @@ HOW IT WORKS:
 This creates a compounding improvement loop with zero extra AI calls.
 """
 import json
-import re
-from sqlalchemy.orm import Session
+
 from models.learning import LearningExample
+from sqlalchemy.orm import Session
 
 LEARN_THRESHOLD = 88   # minimum ATS score to save as a winning example
 MAX_EXAMPLES_PER_QUERY = 3

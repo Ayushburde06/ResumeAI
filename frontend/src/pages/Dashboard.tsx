@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
+import { motion, useReducedMotion } from 'framer-motion'
 import {
   LayoutDashboard, FileText, Trash2, Loader2, Plus, ArrowUpRight, Sparkles,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { listHistory, deleteHistory } from '../lib/api'
 import type { HistoryListItem } from '../types'
+import { transitionBase } from '../lib/motion'
+import { DashboardListSkeleton, DashboardStatsSkeleton } from '../components/DashboardStatsSkeleton'
 
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -32,6 +35,7 @@ function timeAgo(isoDate: string): string {
 export default function Dashboard() {
   const { user, isLoading: authLoading } = useAuth()
   const navigate = useNavigate()
+  const reduceMotion = useReducedMotion()
   const [items, setItems] = useState<HistoryListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [deletingId, setDeletingId] = useState<number | null>(null)
@@ -70,7 +74,7 @@ export default function Dashboard() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center" aria-busy="true" aria-label="Loading">
         <Loader2 className="w-8 h-8 text-brand animate-spin" />
       </div>
     )
@@ -82,54 +86,51 @@ export default function Dashboard() {
     <div className="min-h-screen pt-14">
       <div className="page-shell py-8 lg:py-10">
         <div className="flex flex-col gap-6">
-          <div className="panel p-6 lg:p-7 overflow-hidden relative">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(26,31,46,0.08),transparent_34%),radial-gradient(circle_at_bottom_left,rgba(91,114,150,0.10),transparent_28%)]" />
+          <motion.div
+            className="panel p-6 lg:p-7 overflow-hidden relative"
+            initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={transitionBase}
+          >
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(26,31,46,0.06),transparent_34%)]" />
             <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
               <div className="max-w-2xl">
-                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500 mb-3">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500 mb-3">
                   <LayoutDashboard className="w-4 h-4" />
                   Dashboard
                 </div>
-                <h1 className="hero-title text-4xl md:text-5xl lg:text-[56px] mb-3">
+                <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-ink mb-3">
                   Welcome back, {user.name.split(' ')[0]}.
                 </h1>
-                <p className="hero-copy max-w-2xl">
+                <p className="text-sm md:text-[15px] leading-7 text-zinc-600 max-w-xl">
                   Keep your tailored resumes, ATS scores, and export history in one clean workspace.
                 </p>
               </div>
 
               <div className="flex flex-wrap gap-3">
-                <Link
-                  to="/"
-                  className="inline-flex items-center gap-2 rounded-2xl bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-[0_16px_34px_rgba(26,31,46,0.16)] transition hover:bg-brand-hover hover:-translate-y-0.5"
-                >
-                  <Plus className="w-4 h-4" />
-                  New Resume
-                </Link>
-                <Link
-                  to="/agent"
-                  className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 transition hover:-translate-y-0.5 hover:bg-zinc-50"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  Agent Mode
+                <Link to="/">
+                  <Button className="gap-2 shadow-[0_14px_28px_rgba(26,31,46,0.14)]">
+                    <Sparkles className="w-4 h-4" />
+                    Tailor Resume
+                  </Button>
                 </Link>
               </div>
             </div>
-          </div>
+          </motion.div>
 
           {!loading && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="stat-card">
                 <p className="text-3xl font-semibold text-slate-ink">{safeItems.length}</p>
-                <p className="text-xs uppercase tracking-[0.18em] text-zinc-500 mt-2">Saved resumes</p>
+                <p className="text-xs uppercase tracking-[0.14em] text-zinc-500 mt-2">Saved resumes</p>
               </div>
               <div className="stat-card">
                 <p className="text-3xl font-semibold text-slate-ink">{avgAts !== null ? `${avgAts}%` : '—'}</p>
-                <p className="text-xs uppercase tracking-[0.18em] text-zinc-500 mt-2">Average ATS score</p>
+                <p className="text-xs uppercase tracking-[0.14em] text-zinc-500 mt-2">Average ATS score</p>
               </div>
               <div className="stat-card">
                 <p className="text-3xl font-semibold text-slate-ink">{user.is_premium ? '∞' : remaining}</p>
-                <p className="text-xs uppercase tracking-[0.18em] text-zinc-500 mt-2">
+                <p className="text-xs uppercase tracking-[0.14em] text-zinc-500 mt-2">
                   {user.is_premium ? 'Unlimited tailorings' : 'Free tailorings left'}
                 </p>
               </div>
@@ -137,8 +138,9 @@ export default function Dashboard() {
           )}
 
           {loading ? (
-            <div className="flex items-center justify-center py-24">
-              <Loader2 className="w-6 h-6 text-brand animate-spin" />
+            <div className="space-y-6">
+              <DashboardStatsSkeleton />
+              <DashboardListSkeleton />
             </div>
           ) : safeItems.length === 0 ? (
             <div className="panel p-10 text-center">
@@ -150,7 +152,7 @@ export default function Dashboard() {
                 Upload your resume and a job description to generate your first tailored version.
               </p>
               <Link to="/">
-                <Button size="sm" className="bg-brand hover:bg-brand-hover text-white rounded-2xl px-5">
+                <Button size="sm" className="px-5">
                   <Plus className="w-4 h-4 mr-2" />
                   Analyze my first resume
                 </Button>
@@ -227,6 +229,7 @@ export default function Dashboard() {
                               size="icon"
                               className="h-9 w-9 text-zinc-400 hover:text-red-600 shrink-0"
                               onClick={() => setConfirmDeleteId(item.id)}
+                              aria-label={`Delete ${item.candidate_name || 'resume'}`}
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>

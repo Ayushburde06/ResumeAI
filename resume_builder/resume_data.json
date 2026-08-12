@@ -25,12 +25,12 @@
   "projects": [
     {
       "name": "ResumeAI",
-      "tech": "React, FastAPI, Python, WeasyPrint, AI",
+      "tech": "React, FastAPI, Python, Playwright, AI",
       "dates": "Jun 2026 \u2013 Present",
       "link": "",
       "bullets": [
         "Developed an AI-powered ATS Resume Builder with a multi-agent optimization loop, RAG-based keyword retrieval, and job description analysis for targeted resume tailoring.",
-        "Engineered a PDF export pipeline using WeasyPrint and Jinja2 template rendering; integrated FastAPI backend with streaming SSE for real-time agent progress."
+        "Engineered a PDF export pipeline using Playwright and Jinja2 template rendering; integrated FastAPI backend with streaming SSE for real-time agent progress."
       ]
     },
     {

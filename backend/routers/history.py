@@ -1,14 +1,14 @@
-from typing import Optional
 
+from database import DATABASE_URL, get_db
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
-
-from database import get_db
+from limiter import limiter
 from models.history import ResumeHistory
 from models.user import User
+from pydantic import BaseModel
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
 from routers.auth import require_user
-from limiter import limiter
 
 router = APIRouter(prefix="/history", tags=["history"])
 
@@ -17,15 +17,15 @@ router = APIRouter(prefix="/history", tags=["history"])
 
 class SaveHistoryRequest(BaseModel):
     tailored_resume: dict
-    cover_letter: Optional[dict] = None
-    application_email: Optional[dict] = None
-    job_analysis: Optional[dict] = None
-    quality_report: Optional[dict] = None
-    job_description: Optional[str] = None
-    ats_score: Optional[int] = None
-    matched_keywords: Optional[list] = None
-    missing_keywords: Optional[list] = None
-    total_keywords: Optional[int] = None
+    cover_letter: dict | None = None
+    application_email: dict | None = None
+    job_analysis: dict | None = None
+    quality_report: dict | None = None
+    job_description: str | None = None
+    ats_score: int | None = None
+    matched_keywords: list | None = None
+    missing_keywords: list | None = None
+    total_keywords: int | None = None
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -69,8 +69,21 @@ def list_history(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    entries = (
-        db.query(ResumeHistory)
+    # Avoid loading heavy JSON blobs (cover letter, full JD, etc.) for the list view.
+    if DATABASE_URL.startswith("sqlite"):
+        name_col = func.json_extract(ResumeHistory.tailored_resume, "$.personal_info.name")
+    else:
+        # PostgreSQL / JSON-capable dialects
+        name_col = ResumeHistory.tailored_resume["personal_info"]["name"].as_string()
+
+    rows = (
+        db.query(
+            ResumeHistory.id,
+            ResumeHistory.job_title,
+            ResumeHistory.ats_score,
+            ResumeHistory.created_at,
+            name_col.label("candidate_name"),
+        )
         .filter(ResumeHistory.user_id == user.id)
         .order_by(ResumeHistory.created_at.desc())
         .limit(30)
@@ -78,16 +91,13 @@ def list_history(
     )
     return [
         {
-            "id": e.id,
-            "job_title": e.job_title or "Untitled Role",
-            "candidate_name": (
-                e.tailored_resume.get("personal_info", {}).get("name", "")
-                if e.tailored_resume else ""
-            ),
-            "ats_score": e.ats_score,
-            "created_at": e.created_at.isoformat() if e.created_at else None,
+            "id": row.id,
+            "job_title": row.job_title or "Untitled Role",
+            "candidate_name": row.candidate_name or "",
+            "ats_score": row.ats_score,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
         }
-        for e in entries
+        for row in rows
     ]
 
 

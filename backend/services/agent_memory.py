@@ -108,10 +108,8 @@ class AgentMemory:
         )
         self.iterations.append(record)
         self.composite_scores.append(composite_score)
-        if ats_score > self.best_ats_score:
-            self.best_ats_score = ats_score
-        if composite_score > self.best_composite_score:
-            self.best_composite_score = composite_score
+        self.best_ats_score = max(self.best_ats_score, ats_score)
+        self.best_composite_score = max(self.best_composite_score, composite_score)
 
     def get_critique_summary(self) -> str:
         """

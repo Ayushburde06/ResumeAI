@@ -2,146 +2,30 @@
 Agent Router — SSE streaming endpoint for Agentic AI + RAG analysis.
 POST /api/agent-analyze  →  streams Server-Sent Events.
 """
-import asyncio
-from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Request
+from database import get_db
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
+from limiter import limiter
+from models.user import User
+from quota import check_user_quota
+from services.agent_sse import stream_agent_sse
+from services.parser import parse_resume
+from services.rag_service import get_store_stats
 from sqlalchemy.orm import Session
 
-from database import get_db, SessionLocal
-from limiter import limiter
-from models.history import ResumeHistory
-from models.stats import UserStats, FREE_LIMIT
-from models.user import User
-from routers.auth import require_user, ADMIN_EMAILS
-from services.parser import parse_resume
-from services.agent_orchestrator import run_agent
-from services.rag_service import get_store_stats
 from routers.analyze import _validate_model_id
+from routers.auth import ADMIN_EMAILS, require_user
 
 router = APIRouter()
 
-
-async def _sse_generator(
-    request: Request,
-    resume_text: str,
-    jd_text: str,
-    model_id: str | None,
-    user: User,
-):
-    """
-    Async generator that runs the agent in a thread pool and yields
-    SSE-formatted bytes. Saves to history on completion.
-    """
-    import json
-
-    loop = asyncio.get_event_loop()
-    queue = asyncio.Queue()
-    final_result: dict | None = None
-
-    def _producer():
-        try:
-            for event_str in run_agent(resume_text, jd_text, model_id):
-                loop.call_soon_threadsafe(queue.put_nowait, event_str)
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            err_evt = f"data: {json.dumps({'step': 'error', 'status': 'error', 'message': 'Agent analysis failed. Please try again.'})}\n\n"
-            loop.call_soon_threadsafe(queue.put_nowait, err_evt)
-        finally:
-            loop.call_soon_threadsafe(queue.put_nowait, None)
-
-    # Run in thread pool to avoid blocking
-    executor_future = loop.run_in_executor(None, _producer)
-
-    try:
-        while True:
-            if await request.is_disconnected():
-                break
-
-            event_str = await queue.get()
-            if event_str is None:
-                break
-            yield event_str.encode("utf-8")
-
-            # Extract final result for history saving
-            if '"step": "complete"' in event_str:
-                try:
-                    data = json.loads(event_str.replace("data: ", "").strip())
-                    final_result = data.get("result")
-                except Exception:
-                    pass
-    finally:
-        await executor_future
-
-    # ── Post-analysis: save history + update usage count ─────────────────
-    if final_result and user:
-        db_sess = SessionLocal()
-        try:
-            user_stats = db_sess.query(UserStats).filter(UserStats.user_id == user.id).first()
-            if user_stats:
-                user_stats.analysis_count += 1
-                db_sess.commit()
-
-            history_id = None
-            try:
-                ja = final_result.get("job_analysis", {})
-                ats_score = final_result.get("ats_score", 0)
-                ats_report = final_result.get("ats_report", {})
-                entry = ResumeHistory(
-                    user_id=user.id,
-                    job_title=ja.get("job_title", ""),
-                    ats_score=ats_score,
-                    tailored_resume=final_result.get("tailored_resume", {}),
-                    cover_letter=final_result.get("cover_letter", {}),
-                    application_email=final_result.get("application_email", {}),
-                    job_analysis=ja,
-                    quality_report=final_result.get("quality_report", {}),
-                    job_description=jd_text,
-                    matched_keywords=ats_report.get("matched_keywords", []),
-                    missing_keywords=ats_report.get("missing_keywords", []),
-                    total_keywords=ats_report.get("total_keywords", 0),
-                )
-                db_sess.add(entry)
-                db_sess.commit()
-                db_sess.refresh(entry)
-                history_id = entry.id
-                # Emit history_id to the client so the frontend can link feedback
-                history_event = f"data: {{\"step\": \"history_saved\", \"history_id\": {history_id}}}\n\n"
-                yield history_event.encode("utf-8")
-            except Exception:
-                pass
-
-            # ── Learning store: save winning examples for future RAG retrieval ──
-            try:
-                from services.learning_store import save_winning_example
-                ats_score = final_result.get("ats_score", 0)
-                if ats_score >= 88:
-                    ja = final_result.get("job_analysis", {})
-                    save_winning_example(
-                        db=db_sess,
-                        job_title=ja.get("job_title", ""),
-                        seniority=ja.get("seniority", ""),
-                        required_skills=ja.get("required_skills", []),
-                        resume=final_result.get("tailored_resume", {}),
-                        ats_score=ats_score,
-                        model_used=model_id or "",
-                        history_id=history_id,
-                    )
-            except Exception:
-                pass  # Never block response for learning store failures
-        finally:
-            db_sess.close()
-
-
 @router.post("/agent-analyze")
-@limiter.limit("3/minute")   # Agent mode is 5–10x more expensive than standard
+@limiter.limit("1/minute")   # burst limit — agent is 5-10x more expensive
 async def agent_analyze(
     request: Request,
     resume_file: UploadFile = File(..., description="Resume file — PDF or DOCX"),
     job_description: str = Form(..., description="Full text of the job description"),
-    model: str = Form(default="", description="Model ID (e.g. glm, gpt, kimi)"),
+    model: str = Form(default="", description="Model ID (e.g. nvidia, gemini, glm, kimi, qwen, deepseek)"),
     current_user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
@@ -152,21 +36,8 @@ async def agent_analyze(
     if not resume_file.filename:
         raise HTTPException(status_code=400, detail="No file provided.")
 
-    # ── Usage limit check ────────────────────────────────────────────────────
-    stats: Optional[UserStats] = (
-        db.query(UserStats).filter(UserStats.user_id == current_user.id).first()
-    )
-    if not stats:
-        stats = UserStats(user_id=current_user.id, analysis_count=0, is_premium=False)
-        db.add(stats)
-        db.commit()
-        db.refresh(stats)
-
-    if not stats.is_premium and stats.analysis_count >= FREE_LIMIT:
-        raise HTTPException(
-            status_code=402,
-            detail=f"You've used all {FREE_LIMIT} free tailorings. Upgrade to Premium for unlimited access.",
-        )
+    # ── Daily quota check (rolling 24h) ────────────────────────────────────────
+    stats, _ = check_user_quota(db, current_user, operation="agent")
 
     # ── File validation ──────────────────────────────────────────────────────
     file_bytes = await resume_file.read()
@@ -198,7 +69,7 @@ async def agent_analyze(
 
     # ── Stream SSE response ──────────────────────────────────────────────────
     return StreamingResponse(
-        _sse_generator(request, resume_text, job_description, model_id, current_user),
+        stream_agent_sse(request, resume_text, job_description, model_id, current_user),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

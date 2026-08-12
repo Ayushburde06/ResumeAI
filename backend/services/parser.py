@@ -1,11 +1,12 @@
 import io
+
 import pdfplumber
+
 try:
     import fitz  # PyMuPDF
 except ImportError:
     fitz = None
 from docx import Document
-
 
 # ── Magic-byte MIME validation ────────────────────────────────────────────────
 # Validate actual file content regardless of the supplied filename/extension.
@@ -143,4 +144,4 @@ def parse_resume(filename: str, file_bytes: bytes, content_type: str | None = No
     elif lower_name.endswith(".doc"):
         raise ValueError("Legacy .doc format is not supported. Please convert to .docx or .pdf.")
     else:
-        raise ValueError(f"Unsupported file type. Please upload a PDF or DOCX file.")
+        raise ValueError("Unsupported file type. Please upload a PDF or DOCX file.")

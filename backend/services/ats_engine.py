@@ -329,7 +329,9 @@ def compute_ats_score(resume_text: str, jd_text: str) -> ATSResult:
     # Scoring curve tuned for well-optimised AI resumes:
     # A resume that covers 60%+ of JD keywords should display 90%+
     # because true 100% matches are unnatural keyword stuffing.
-    if raw_score >= 75:
+    if raw_score == 0:
+        score = 0
+    elif raw_score >= 75:
         score = min(98, int(raw_score + 15))  # 75->90, 83->98
     elif raw_score >= 60:
         score = min(94, int(raw_score + 25))  # 60->85, 65->90, 68->93

@@ -1,5 +1,46 @@
+import json
 import re
+from pathlib import Path
+
 from markupsafe import Markup, escape
+
+_SYNONYMS_FILE = Path(__file__).parent / "synonyms.json"
+_SYNONYMS: dict[str, str] = {}
+if _SYNONYMS_FILE.exists():
+    try:
+        with open(_SYNONYMS_FILE, "r") as f:
+            _SYNONYMS = json.load(f)
+    except Exception:
+        pass
+
+def _normalize_keyword(kw: str) -> str:
+    kw = kw.strip().lower()
+    return _SYNONYMS.get(kw, kw)
+
+def match_jd_keywords(text: str, jd_keywords: list[str]) -> list[str]:
+    """Find which jd_keywords appear in text. Case-insensitive, normalizes synonyms. Exact substring."""
+    if not text or not jd_keywords:
+        return []
+    text_lower = text.lower()
+    matches = set()
+    for kw in jd_keywords:
+        kw_lower = kw.strip().lower()
+        norm_kw = _normalize_keyword(kw)
+        
+        if kw_lower in text_lower:
+            matches.add(kw)
+            continue
+            
+        if norm_kw != kw_lower and norm_kw in text_lower:
+            matches.add(kw)
+            continue
+            
+        for syn_k, syn_v in _SYNONYMS.items():
+            if syn_v == norm_kw and syn_k in text_lower:
+                matches.add(kw)
+                break
+                
+    return list(matches)
 
 _BOLD_PATTERN = re.compile(r"\*\*(.+?)\*\*")
 
@@ -75,11 +116,25 @@ def _safe_sub(pattern: re.Pattern, text: str, current_count: int) -> tuple[str, 
 
 
 def _build_jd_pattern(jd_keywords: list[str]) -> re.Pattern | None:
-    """Build a regex pattern from job description keywords, sorted longest-first to avoid partial matches."""
+    """Build a regex pattern from job description keywords, adding synonyms, sorted longest-first."""
     if not jd_keywords:
         return None
+    
+    terms_to_match = set()
+    for k in jd_keywords:
+        k = k.strip()
+        if not k:
+            continue
+        terms_to_match.add(k)
+        norm = _normalize_keyword(k)
+        if norm != k.lower():
+            terms_to_match.add(norm)
+        for syn_k, syn_v in _SYNONYMS.items():
+            if syn_v == norm:
+                terms_to_match.add(syn_k)
+
     escaped = sorted(
-        [re.escape(k.strip()) for k in jd_keywords if k.strip()],
+        [re.escape(k) for k in terms_to_match],
         key=len,
         reverse=True,
     )
@@ -185,6 +240,10 @@ def render_bold_markers(
     """
     if not text:
         return Markup("")
+
+    # Bold Marker Integrity Validation
+    if text.count("**") % 2 != 0:
+        text = text.replace("**", "")
 
     processed = auto_bold_high_impact_keywords(
         str(text),

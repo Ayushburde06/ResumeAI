@@ -14,8 +14,8 @@ Falls back to the legacy Pillow pixel-analysis if Bedrock is unavailable
 import base64
 import json
 import os
-import sys
 from pathlib import Path
+
 
 # ── Bedrock credentials (loaded from backend/.env or environment) ────────────
 def _load_env():
@@ -32,7 +32,7 @@ def _load_env():
 
 _load_env()
 
-_BEDROCK_API_KEY  = os.getenv("QWEN_API_KEY", "")
+_BEDROCK_API_KEY  = os.getenv("AWS_BEARER_TOKEN_BEDROCK", "") or os.getenv("GLM_API_KEY", "") or os.getenv("QWEN_API_KEY", "")
 _BEDROCK_ENDPOINT = os.getenv("QWEN_ENDPOINT", "https://bedrock-mantle.us-east-1.api.aws/v1")
 _VISION_MODEL     = "qwen.qwen3-vl-235b-a22b-instruct"
 
@@ -149,8 +149,7 @@ def _call_vision(image_paths: list[Path], verbose: bool) -> dict:
     # Strip markdown code fences if model wraps in ```json
     if raw.startswith("```"):
         raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
+        raw = raw.removeprefix("json")
         raw = raw.strip()
 
     verdict = json.loads(raw)

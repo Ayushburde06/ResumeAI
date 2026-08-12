@@ -6,17 +6,17 @@ Represents overall resume quality across 5 axes.
 No LLM required — pure computation.
 """
 from __future__ import annotations
+
 import math
 
-
 # ── Sub-score weights ─────────────────────────────────────────────────────────
-# These weights reflect which axis matters most for job applications.
+# These weights reflect the new 12-stage multi-dimensional scoring model.
 _WEIGHTS = {
-    "ats": 0.35,          # ATS keyword coverage (highest impact)
-    "readability": 0.25,  # Recruiter readability
-    "grammar": 0.20,      # Grammar and sentence quality
-    "formatting": 0.15,   # Section structure and layout
-    "humanization": 0.05, # Avoidance of AI/buzzword language
+    "ats": 0.20,
+    "hr_readability": 0.20,
+    "hm_confidence": 0.20,
+    "human_writing": 0.20,
+    "evidence_credibility": 0.20,
 }
 
 
@@ -32,23 +32,23 @@ def compute_composite_score(
 
     Args:
         ats_score:      0–100 ATS keyword match score
-        quality_report: dict from assess_resume_quality()
+        quality_report: dict containing the other 4 scores
 
     Returns:
         float in [0.0, 1.0]
     """
     ats_norm          = max(0, min(100, ats_score)) / 100.0
-    readability_norm  = max(0, min(100, quality_report.get("recruiter_readability_score", 70))) / 100.0
-    grammar_norm      = max(0, min(100, quality_report.get("grammar_score", 70))) / 100.0
-    formatting_norm   = max(0, min(100, quality_report.get("formatting_score", 80))) / 100.0
-    humanization_norm = max(0, min(100, quality_report.get("humanization_score", 70))) / 100.0
+    hr_norm           = max(0, min(100, quality_report.get("hr_readability_score", 70))) / 100.0
+    hm_norm           = max(0, min(100, quality_report.get("hm_confidence_score", 70))) / 100.0
+    human_norm        = max(0, min(100, quality_report.get("human_writing_score", 70))) / 100.0
+    evidence_norm     = max(0, min(100, quality_report.get("evidence_credibility_score", 70))) / 100.0
 
     scores = {
-        "ats":          ats_norm,
-        "readability":  readability_norm,
-        "grammar":      grammar_norm,
-        "formatting":   formatting_norm,
-        "humanization": humanization_norm,
+        "ats":                  ats_norm,
+        "hr_readability":       hr_norm,
+        "hm_confidence":        hm_norm,
+        "human_writing":        human_norm,
+        "evidence_credibility": evidence_norm,
     }
 
     # Weighted geometric mean: exp(Σ w_i * ln(s_i + ε))
@@ -105,10 +105,10 @@ def score_breakdown(ats_score: int, quality_report: dict) -> dict:
         "composite": composite,
         "composite_pct": round(composite * 100),
         "ats": ats_score,
-        "readability": quality_report.get("recruiter_readability_score", 0),
-        "grammar": quality_report.get("grammar_score", 0),
-        "formatting": quality_report.get("formatting_score", 0),
-        "humanization": quality_report.get("humanization_score", 0),
+        "hr_readability": quality_report.get("hr_readability_score", 0),
+        "hm_confidence": quality_report.get("hm_confidence_score", 0),
+        "human_writing": quality_report.get("human_writing_score", 0),
+        "evidence_credibility": quality_report.get("evidence_credibility_score", 0),
         "verdict": (
             "Excellent — ready for submission"     if composite >= 0.85 else
             "Good — minor polish remaining"         if composite >= 0.72 else

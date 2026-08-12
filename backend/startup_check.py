@@ -8,12 +8,8 @@ import sys
 
 _PLACEHOLDERS = {
     "CHANGE_THIS_TO_A_RANDOM_64_CHAR_HEX_STRING",
-    "YOUR_QWEN_API_KEY_HERE",
     "YOUR_GLM_API_KEY_HERE",
     "YOUR_GLM_FLASH_API_KEY_HERE",
-    "YOUR_DEEPSEEK_API_KEY_HERE",
-    "YOUR_KIMI_API_KEY_HERE",
-    "YOUR_MINIMAX_API_KEY_HERE",
     "",
 }
 
@@ -22,10 +18,9 @@ _REQUIRED = {
 }
 
 _AT_LEAST_ONE_MODEL = {
-    "GLM_API_KEY":     "GLM-5 model",
-    "KIMI_API_KEY":    "Kimi 2.5 model",
-    "QWEN_API_KEY":    "Qwen3 Next 80B model",
-    "MINIMAX_API_KEY": "MiniMax m2.5 model",
+    "GLM_API_KEY":               "GLM-5 model",
+    "GLM_FLASH_API_KEY":         "GLM-4.7 Flash model",
+    "AWS_BEARER_TOKEN_BEDROCK":  "AWS Bedrock / Mantle GLM",
 }
 
 
@@ -47,7 +42,7 @@ def run():
     if not configured_models:
         errors.append(
             "  ✗ No AI model API key found.\n"
-            "    → Set at least one of: GLM_API_KEY, GPT_API_KEY, or KIMI_API_KEY"
+            "    → Set at least one of: " + ", ".join(_AT_LEAST_ONE_MODEL)
         )
 
     if errors:

@@ -1,0 +1,261 @@
+%-------------------------
+% Resume in Latex
+% Based off of: https://github.com/jakeryang/resume
+% License : MIT
+%------------------------
+
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+
+% fontawesome
+\usepackage{fontawesome5}
+
+% fixed width
+\usepackage[scale=0.90,lf]{FiraMono}
+
+% light-grey
+\definecolor{light-grey}{gray}{0.83}
+\definecolor{dark-grey}{gray}{0.3}
+\definecolor{text-grey}{gray}{.08}
+
+\DeclareRobustCommand{\ebseries}{\fontseries{eb}\selectfont}
+\DeclareTextFontCommand{\texteb}{\ebseries}
+
+% custom underline
+\usepackage{contour}
+\usepackage[normalem]{ulem}
+\renewcommand{\ULdepth}{1.8pt}
+\contourlength{0.8pt}
+\newcommand{\myuline}[1]{%
+  \uline{\phantom{#1}}%
+  \llap{\contour{white}{#1}}%
+}
+
+% custom font: helvetica-style
+\usepackage{tgheros}
+\renewcommand*\familydefault{\sfdefault}
+\usepackage[T1]{fontenc}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% Adjust margins (Can be injected dynamically if needed, but we start with baseline)
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{0in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-0.5in}
+\addtolength{\textheight}{1.0in}
+
+\urlstyle{same}
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+% sans-serif section headers with 2pt light-grey rule
+\titleformat{\section}{
+    \bfseries \vspace{2pt} \raggedright \large
+}{}{0em}{}[\color{light-grey} {\titlerule[2pt]} \vspace{-4pt}]
+
+%-------------------------
+% Custom commands
+\newcommand{\resumeItem}[1]{
+  \item\small{
+    {#1 \vspace{-1pt}}
+  }
+}
+
+\newcommand{\resumeSubheading}[4]{
+  \vspace{-1pt}\item
+    \begin{tabular*}{\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & {\color{dark-grey}\small #2}\vspace{1pt}\\
+      \textit{#3} & {\color{dark-grey} \small #4}\\
+    \end{tabular*}\vspace{-4pt}
+}
+
+\newcommand{\resumeProjectHeading}[2]{
+    \item
+    \begin{tabular*}{\textwidth}{l@{\extracolsep{\fill}}r}
+      #1 & {\color{dark-grey} \small #2} \\
+    \end{tabular*}\vspace{-4pt}
+}
+
+\newcommand{\resumeSubItem}[1]{\resumeItem{#1}\vspace{-4pt}}
+\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{0pt}}
+
+\color{text-grey}
+
+%-------------------------------------------
+%%%%%%  RESUME STARTS HERE  %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\begin{document}
+
+%----------HEADING----------
+\begin{center}
+    \textbf{\Huge << (resume.personal_info.name or "Your Name") | tex_escape >>} \\ \vspace{5pt}
+    \small 
+    <BLOCK> set contacts = [] </BLOCK>
+    <BLOCK> if resume.personal_info.phone </BLOCK>
+        <BLOCK> set _ = contacts.append("\\faPhone* \\texttt{" ~ (resume.personal_info.phone | tex_escape) ~ "}") </BLOCK>
+    <BLOCK> endif </BLOCK>
+    <BLOCK> if resume.personal_info.email </BLOCK>
+        <BLOCK> set _ = contacts.append("\\faEnvelope \\hspace{2pt} \\texttt{" ~ (resume.personal_info.email | tex_escape) ~ "}") </BLOCK>
+    <BLOCK> endif </BLOCK>
+    <BLOCK> if resume.personal_info.linkedin </BLOCK>
+        <BLOCK> set _ = contacts.append("\\faLinkedin \\hspace{2pt} " ~ (resume.personal_info.linkedin | tex_myuline_href(resume.personal_info.linkedin | tex_shorten))) </BLOCK>
+    <BLOCK> endif </BLOCK>
+    <BLOCK> if resume.personal_info.github </BLOCK>
+        <BLOCK> set _ = contacts.append("\\faGithub \\hspace{2pt} " ~ (resume.personal_info.github | tex_myuline_href(resume.personal_info.github | tex_shorten))) </BLOCK>
+    <BLOCK> endif </BLOCK>
+    <BLOCK> if resume.personal_info.website </BLOCK>
+        <BLOCK> set _ = contacts.append("\\faGlobe \\hspace{2pt} " ~ (resume.personal_info.website | tex_myuline_href(resume.personal_info.website | tex_shorten))) </BLOCK>
+    <BLOCK> endif </BLOCK>
+    <BLOCK> if resume.personal_info.location </BLOCK>
+        <BLOCK> set _ = contacts.append("\\faMapMarker* \\hspace{2pt}\\texttt{" ~ (resume.personal_info.location | tex_escape) ~ "}") </BLOCK>
+    <BLOCK> endif </BLOCK>
+    << contacts | join(' \\hspace{1pt} $|$ \\hspace{1pt} ') | safe >>
+    \\ \vspace{-3pt}
+\end{center}
+
+<BLOCK> if resume.summary </BLOCK>
+%-----------SUMMARY-----------
+\section{SUMMARY}
+\small << resume.summary | tex_bold | safe >>
+
+<BLOCK> endif </BLOCK>
+<BLOCK> if resume.experience </BLOCK>
+%-----------EXPERIENCE-----------
+\section{EXPERIENCE}
+  \resumeSubHeadingListStart
+<BLOCK> for exp in resume.experience </BLOCK>
+    \resumeSubheading
+      { << (exp.company or "") | tex_escape >> }{ << (exp.start_date ~ " -- " ~ exp.end_date if exp.end_date else exp.start_date) | tex_escape >> }
+      { << (exp.title or "") | tex_escape >> }{ << (exp.location or "") | tex_escape >> }
+<BLOCK> if exp.bullets </BLOCK>
+      \resumeItemListStart
+<BLOCK> for bullet in exp.bullets </BLOCK>
+        \resumeItem{ << bullet | tex_bold | safe >> }
+<BLOCK> endfor </BLOCK>
+      \resumeItemListEnd
+<BLOCK> endif </BLOCK>
+<BLOCK> endfor </BLOCK>
+  \resumeSubHeadingListEnd
+<BLOCK> endif </BLOCK>
+
+<BLOCK> if resume.projects </BLOCK>
+%-----------PROJECTS-----------
+\section{PROJECTS}
+    \resumeSubHeadingListStart
+<BLOCK> for proj in resume.projects </BLOCK>
+    <BLOCK> set proj_title = "\\textbf{" ~ (proj.name | tex_escape) ~ "}" </BLOCK>
+    <BLOCK> if proj.tech_stack </BLOCK>
+        <BLOCK> set tech = proj.tech_stack | join(', ') </BLOCK>
+        <BLOCK> set proj_title = proj_title ~ " \\small{(" ~ (tech | tex_escape) ~ ")}" </BLOCK>
+    <BLOCK> endif </BLOCK>
+    <BLOCK> set links = [] </BLOCK>
+    <BLOCK> if proj.link </BLOCK>
+        <BLOCK> set _ = links.append(proj.link | tex_myuline_href(proj.link | tex_shorten)) </BLOCK>
+    <BLOCK> endif </BLOCK>
+    <BLOCK> if proj.live_link </BLOCK>
+        <BLOCK> set _ = links.append(proj.live_link | tex_myuline_href('Live Demo')) </BLOCK>
+    <BLOCK> endif </BLOCK>
+    <BLOCK> if links </BLOCK>
+        <BLOCK> set proj_title = proj_title ~ " $|$ \\small " ~ links|join(" $|$ ") </BLOCK>
+    <BLOCK> endif </BLOCK>
+    \resumeProjectHeading
+      { << proj_title | safe >> }{}
+<BLOCK> if proj.bullets </BLOCK>
+      \resumeItemListStart
+<BLOCK> for bullet in proj.bullets </BLOCK>
+        \resumeItem{ << bullet | tex_bold | safe >> }
+<BLOCK> endfor </BLOCK>
+      \resumeItemListEnd
+<BLOCK> elif proj.description </BLOCK>
+      \resumeItemListStart
+<BLOCK> for bullet in (proj.description | tex_split_sentences) </BLOCK>
+        \resumeItem{ << bullet | tex_bold | safe >> }
+<BLOCK> endfor </BLOCK>
+      \resumeItemListEnd
+<BLOCK> endif </BLOCK>
+<BLOCK> endfor </BLOCK>
+    \resumeSubHeadingListEnd
+<BLOCK> endif </BLOCK>
+
+<BLOCK> if resume.skills and (resume.skills.languages or resume.skills.frameworks or resume.skills.databases or resume.skills.tools or resume.skills.concepts) </BLOCK>
+%-----------SKILLS-----------
+\section{SKILLS}
+ \begin{itemize}[leftmargin=0in, label={}]
+    \small{\item{
+<BLOCK> set skill_rows = [] </BLOCK>
+<BLOCK> if resume.skills.languages </BLOCK>
+    <BLOCK> set _ = skill_rows.append("\\textbf{Languages}{: " ~ (resume.skills.languages | tex_bold_list | safe) ~ "}") </BLOCK>
+<BLOCK> endif </BLOCK>
+<BLOCK> if resume.skills.frameworks or resume.skills.databases </BLOCK>
+    <BLOCK> set f = [] </BLOCK>
+    <BLOCK> if resume.skills.frameworks </BLOCK><BLOCK> set _ = f.extend(resume.skills.frameworks) </BLOCK><BLOCK> endif </BLOCK>
+    <BLOCK> if resume.skills.databases </BLOCK><BLOCK> set _ = f.extend(resume.skills.databases) </BLOCK><BLOCK> endif </BLOCK>
+    <BLOCK> set _ = skill_rows.append("\\textbf{Frameworks \\& Databases}{: " ~ (f | tex_bold_list | safe) ~ "}") </BLOCK>
+<BLOCK> endif </BLOCK>
+<BLOCK> if resume.skills.tools or resume.skills.concepts </BLOCK>
+    <BLOCK> set t = [] </BLOCK>
+    <BLOCK> if resume.skills.tools </BLOCK><BLOCK> set _ = t.extend(resume.skills.tools) </BLOCK><BLOCK> endif </BLOCK>
+    <BLOCK> if resume.skills.concepts </BLOCK><BLOCK> set _ = t.extend(resume.skills.concepts) </BLOCK><BLOCK> endif </BLOCK>
+    <BLOCK> set _ = skill_rows.append("\\textbf{Tools \\& Concepts}{: " ~ (t | tex_bold_list | safe) ~ "}") </BLOCK>
+<BLOCK> endif </BLOCK>
+<< skill_rows | join(' \\vspace{2pt} \\\\\n') | safe >>
+    }}
+ \end{itemize}
+
+<BLOCK> endif </BLOCK>
+
+<BLOCK> if resume.education </BLOCK>
+%-----------EDUCATION-----------
+\section{EDUCATION}
+  \resumeSubHeadingListStart
+<BLOCK> for edu in resume.education </BLOCK>
+    <BLOCK> set extras = [] </BLOCK>
+    <BLOCK> if edu.gpa </BLOCK><BLOCK> set _ = extras.append("GPA: " ~ (edu.gpa | tex_escape)) </BLOCK><BLOCK> endif </BLOCK>
+    <BLOCK> if edu.honors </BLOCK><BLOCK> set _ = extras.append(edu.honors | tex_escape) </BLOCK><BLOCK> endif </BLOCK>
+    <BLOCK> set degree_full = (edu.degree | tex_escape) ~ ((", " ~ extras|join(", ")) if extras else "") </BLOCK>
+    <BLOCK> set date_str = (edu.start_date ~ " -- " ~ edu.end_date) if (edu.start_date and edu.end_date) else (edu.graduation_year or edu.end_date or "") </BLOCK>
+    \resumeSubheading
+      { << (edu.institution or "") | tex_escape >> }{ << date_str | tex_escape >> }
+      { << degree_full | safe >> }{ << (edu.location or "") | tex_escape >> }
+<BLOCK> endfor </BLOCK>
+  \resumeSubHeadingListEnd
+
+<BLOCK> endif </BLOCK>
+
+<BLOCK> if resume.certifications </BLOCK>
+%-----------CERTIFICATIONS-----------
+\section{CERTIFICATIONS}
+  \resumeSubHeadingListStart
+<BLOCK> for cert in resume.certifications </BLOCK>
+    <BLOCK> set extras = [] </BLOCK>
+    <BLOCK> if cert.issuer </BLOCK><BLOCK> set _ = extras.append(cert.issuer | tex_escape) </BLOCK><BLOCK> endif </BLOCK>
+    <BLOCK> if cert.date or cert.year </BLOCK><BLOCK> set _ = extras.append((cert.date or cert.year) | tex_escape) </BLOCK><BLOCK> endif </BLOCK>
+    <BLOCK> set suffix = (" $\\cdot$ " ~ extras|join(", ")) if extras else "" </BLOCK>
+    \resumeItem{\textbf{ << cert.name | tex_escape >> }<< suffix | safe >>}
+<BLOCK> endfor </BLOCK>
+  \resumeSubHeadingListEnd
+
+<BLOCK> endif </BLOCK>
+%-------------------------------------------
+\end{document}

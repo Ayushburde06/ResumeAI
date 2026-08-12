@@ -1,27 +1,35 @@
+import asyncio
 import os
+import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
+
 from dotenv import load_dotenv
 
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 env_path = Path(__file__).resolve().parent / ".env"
-load_dotenv(dotenv_path=env_path)
+load_dotenv(dotenv_path=env_path, override=True)
 
 # ── Security: validate all secrets before anything else starts ────────────────
 from startup_check import run as _check_secrets
+
 _check_secrets()
 
+import models.history
+import models.learning
+import models.profile
+import models.stats
+import models.user  # noqa: F401
+from database import Base, engine
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from limiter import limiter  # shared instance — also used in auth.py
+from routers import admin, agent, analyze, auth, feedback, history, jobs, profile
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-
-from database import Base, engine
-from limiter import limiter          # shared instance — also used in auth.py
-from routers import analyze, jobs, auth, history, agent, feedback, admin
-import models.user     # noqa: F401
-import models.history  # noqa: F401
-import models.stats    # noqa: F401
-import models.learning # noqa: F401  (LearningExample + DeltaPattern)
 
 Base.metadata.create_all(bind=engine)
 
@@ -60,10 +68,29 @@ except Exception as e:
 
 _is_production = os.environ.get("ENV", "development").lower() == "production"
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup and shutdown lifecycle using the modern lifespan pattern."""
+    # ── Startup ──────────────────────────────────────────────────────────────
+    try:
+        from services.rag_service import get_store_stats
+        stats = get_store_stats()
+        print(f"[RAG] Knowledge store loaded: {stats}")
+    except Exception as e:
+        print(f"[RAG] Warmup skipped: {e}")
+
+    yield  # Application runs here
+
+    # ── Shutdown ─────────────────────────────────────────────────────────────
+    print("[Shutdown] Application shutting down.")
+
+
 app = FastAPI(
     title="ResumeAI API",
     description="AI-powered resume tailoring — rewrites resumes for ATS and job-description match.",
     version="2.0.0",
+    lifespan=lifespan,
     # Disable interactive docs in production to reduce attack surface
     docs_url=None if _is_production else "/docs",
     redoc_url=None if _is_production else "/redoc",
@@ -79,8 +106,9 @@ ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-from sqlalchemy.exc import IntegrityError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
+
 
 @app.exception_handler(IntegrityError)
 async def sqlalchemy_integrity_error_handler(request: Request, exc: IntegrityError):
@@ -93,22 +121,39 @@ async def sqlalchemy_integrity_error_handler(request: Request, exc: IntegrityErr
 # SlowAPIMiddleware enforces per-route limits and adds standard rate-limit headers
 app.add_middleware(SlowAPIMiddleware)
 
+# ── Global Concurrency Guard ──────────────────────────────────────────────────
+# Caps TOTAL simultaneous requests so the server never chokes under load.
+# Heavy endpoints (AI, PDF) are capped separately inside their routers.
+_MAX_CONCURRENT = int(os.environ.get("MAX_CONCURRENT_REQUESTS", "50"))
+_concurrency_semaphore = asyncio.Semaphore(_MAX_CONCURRENT)
+
+@app.middleware("http")
+async def global_concurrency_guard(request: Request, call_next) -> Response:
+    if _concurrency_semaphore.locked():
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Server is at capacity. Please try again shortly."},
+            headers={"Retry-After": "5"},
+        )
+    async with _concurrency_semaphore:
+        return await call_next(request)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     import traceback
-    print(f"❌ [500 ERROR] {request.method} {request.url.path}: {exc}")
+    print(f"[500 ERROR] {request.method} {request.url.path}: {exc}")
     traceback.print_exc()
     return JSONResponse(
         status_code=500,
-        content={"detail": f"Internal Server Error: {str(exc)}"},
+        content={"detail": "Internal server error. Please try again later."},
     )
 
 # ── Request body size limiter (non-upload routes) ─────────────────────────────
@@ -167,17 +212,8 @@ app.include_router(history.router,  prefix="/api")
 app.include_router(agent.router,    prefix="/api")
 app.include_router(feedback.router, prefix="/api")
 app.include_router(admin.router,    prefix="/api")
+app.include_router(profile.router,  prefix="/api")
 
-
-@app.on_event("startup")
-async def _warmup_rag():
-    """Pre-load the RAG knowledge store on startup so first request is fast."""
-    try:
-        from services.rag_service import get_store_stats
-        stats = get_store_stats()
-        print(f"[RAG] Knowledge store loaded: {stats}")
-    except Exception as e:
-        print(f"[RAG] Warmup skipped: {e}")
 
 
 @app.get("/")

@@ -1,0 +1,12 @@
+{
+  "postgres": "postgresql",
+  "js": "javascript",
+  "ts": "typescript",
+  "k8s": "kubernetes",
+  "aws": "amazon web services",
+  "gcp": "google cloud platform",
+  "reactjs": "react",
+  "node": "node.js",
+  "vuejs": "vue",
+  "next": "next.js"
+}
